@@ -36,7 +36,7 @@ class Candidate(Base):
     course_program = Column(String(100), nullable=False) 
     department_branch = Column(String(100), nullable=True) 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    video_path = Column(String, nullable=False)
+    video_path = Column(String, nullable=True)
 
 
 class Panel(Base):
