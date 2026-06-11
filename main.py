@@ -2,13 +2,21 @@
 from dotenv import load_dotenv
 import os
 
+from sqlalchemy import func
+
+from models.SelfAssessmentResult import SelfAssessmentResult
+from models.SelfAssessmentAnswer import SelfAssessmentAnswer
+from schemas import save_answer_request
+from schemas.grading_schema import GradingSchema, FinalAssessmentSchema
+from schemas.schedule_interview_request import ScheduleInterviewRequest
+
 load_dotenv()
 
 # ---------------- IMPORTS ----------------
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, APIRouter, Form, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, APIRouter, Form, WebSocket, WebSocketDisconnect, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query, Session
 
 import cv2
 import numpy as np
@@ -34,7 +42,9 @@ from openai import OpenAI
 from google import genai
 from google.genai import types
 
-from typing import Optional, List
+
+
+from typing import Annotated, Any, Dict, Optional, List
 from pydantic import BaseModel
 from datetime import datetime
 from routes import auth_routes as auth
@@ -169,7 +179,7 @@ def start_interview(db: Session = Depends(get_db)):
 #     return question
 
 @app.get("/next-question/{interview_id}")
-def get_next_question(interview_id: int, category: str, db: Session = Depends(get_db)):
+def get_next_question(interview_id: str, category: str, db: Session = Depends(get_db)):
     interview_key = str(interview_id)
 
     # ---------------- INIT SESSION IF NOT EXISTS ----------------
@@ -204,63 +214,63 @@ def get_next_question(interview_id: int, category: str, db: Session = Depends(ge
 
 
 # ---------------- SAVE FULL VIDEO ----------------
-@app.post("/save-video/{interview_id}")
-async def save_video(
-    interview_id: int,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
-    try:
-        # 🔥 Ensure directory exists
-        os.makedirs(RECORDING_BASE_PATH, exist_ok=True)
+# @app.post("/save-video/{interview_id}")
+# async def save_video(
+#     interview_id: int,
+#     file: UploadFile = File(...),
+#     db: Session = Depends(get_db)
+# ):
+#     try:
+#         # 🔥 Ensure directory exists
+#         os.makedirs(RECORDING_BASE_PATH, exist_ok=True)
 
-        # 🔥 Create filename (IMPORTANT CHANGE)
-        filename = f"{interview_id}.webm"
+#         # 🔥 Create filename (IMPORTANT CHANGE)
+#         filename = f"{interview_id}.webm"
 
-        # 🔥 Build full path
-        video_path = os.path.join(RECORDING_BASE_PATH, filename)
+#         # 🔥 Build full path
+#         video_path = os.path.join(RECORDING_BASE_PATH, filename)
 
-        # 🔥 Normalize (OS safe)
-        video_path = os.path.normpath(video_path)
+#         # 🔥 Normalize (OS safe)
+#         video_path = os.path.normpath(video_path)
 
-        # 🔥 Save file
-        contents = await file.read()
-        with open(video_path, "wb") as f:
-            f.write(contents)
+#         # 🔥 Save file
+#         contents = await file.read()
+#         with open(video_path, "wb") as f:
+#             f.write(contents)
 
-        # ---------------- FETCH INTERVIEW ----------------
-        interview = db.query(Interview).filter(Interview.id == interview_id).first()
+#         # ---------------- FETCH INTERVIEW ----------------
+#         interview = db.query(Interview).filter(Interview.id == interview_id).first()
 
-        if not interview:
-            raise HTTPException(status_code=404, detail="Interview not found")
+#         if not interview:
+#             raise HTTPException(status_code=404, detail="Interview not found")
 
-        # ---------------- UPDATE INTERVIEW ----------------
-        # ✅ STORE ONLY FILE NAME (NOT FULL PATH)
-        interview.video_path = filename
-        interview.status = "Completed"
+#         # ---------------- UPDATE INTERVIEW ----------------
+#         # ✅ STORE ONLY FILE NAME (NOT FULL PATH)
+#         interview.video_path = filename
+#         interview.status = "Completed"
 
-        # ---------------- UPDATE CANDIDATE ----------------
-        candidate = db.query(Candidate).filter(
-            Candidate.id == interview.candidate_id
-        ).first()
+#         # ---------------- UPDATE CANDIDATE ----------------
+#         candidate = db.query(Candidate).filter(
+#             Candidate.id == interview.candidate_id
+#         ).first()
 
-        if candidate:
-            candidate.video_path = filename
+#         if candidate:
+#             candidate.video_path = filename
 
-        db.commit()
+#         db.commit()
 
-        # ✅ Return full accessible URL (optional but useful)
-        video_url = f"http://127.0.0.1:8000/videos/{filename}"
+#         # ✅ Return full accessible URL (optional but useful)
+#         video_url = f"http://127.0.0.1:8000/videos/{filename}"
 
-        return {
-            "message": "Video saved and updated successfully",
-            "video_filename": filename,
-            "video_url": video_url
-        }
+#         return {
+#             "message": "Video saved and updated successfully",
+#             "video_filename": filename,
+#             "video_url": video_url
+#         }
 
-    except Exception as e:
-        print("❌ SAVE VIDEO ERROR:", e)
-        raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         print("❌ SAVE VIDEO ERROR:", e)
+#         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ask-ai")
 async def ask_ai(question: str, answer: str):
@@ -434,120 +444,121 @@ def get_panels(db: Session = Depends(get_db)):
 # INTERVIEW ROUTES
 # ============================================
 
-@app.post("/api/schedule-interview")
-def schedule_interview(data: InterviewRequest, db: Session = Depends(get_db)):
-    try:
-        # Generate the unique identifier tracking key for the session handshake
-        interview_id = generate_interview_id()
+# @app.post("/api/schedule-interview")
+# def schedule_interview(data: InterviewRequest, db: Session = Depends(get_db)):
+#     try:
+#         # Generate the unique identifier tracking key for the session handshake
+#         interview_id = generate_interview_id()
         
-        # 🛠️ Validate and convert incoming frontend string to your Python CourseProgram Enum
-        db_course = None
-        if data.student_course_program:
-            try:
-                db_course = CourseProgram(data.student_course_program)
-            except ValueError:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Invalid course program validation match. Choose from: {[c.value for c in CourseProgram]}"
-                )
+#         # 🛠️ Validate and convert incoming frontend string to your Python CourseProgram Enum
+#         db_course = None
+#         if data.student_course_program:
+#             try:
+#                 db_course = CourseProgram(data.student_course_program)
+#             except ValueError:
+#                 raise HTTPException(
+#                     status_code=400, 
+#                     detail=f"Invalid course program validation match. Choose from: {[c.value for c in CourseProgram]}"
+#                 )
 
-        # 1. Create the candidate with the course program assigned directly to its proper model field
-        candidate = Candidate(
-            name=data.student_full_name,
-            email=data.student_email,
-            phone=data.student_mobile,
-            interview_id=interview_id,
-            student_father_mother_name=data.student_father_mother_name,
-            student_dob=data.student_dob,
-            student_gender=data.student_gender,
-            student_category=data.student_category,
-            student_alt_mobile=data.student_alt_mobile,
-            student_current_address=data.student_current_address,
-            student_permanent_address=data.student_permanent_address,
-            student_course_program=data.student_course_program,
+#         # 1. Create the candidate with the course program assigned directly to its proper model field
+#         candidate = Candidate(
+#             name=data.student_full_name,
+#             email=data.student_email,
+#             phone=data.student_mobile,
+#             interview_id=interview_id,
+#             student_father_mother_name=data.student_father_mother_name,
+#             student_dob=data.student_dob,
+#             student_gender=data.student_gender,
+#             student_category=data.student_category,
+#             student_alt_mobile=data.student_alt_mobile,
+#             student_current_address=data.student_current_address,
+#             student_permanent_address=data.student_permanent_address,
+#             student_course_program=data.student_course_program,
             
-            # 🔥 SAVED DIRECTLY IN CANDIDATE TABLE AS ENUM
-            course_program=db_course,
+#             # 🔥 SAVED DIRECTLY IN CANDIDATE TABLE AS ENUM
+#             course_program=db_course,
             
-            student_department_branch=data.student_department_branch,
-            student_university=data.student_university,
-            student_enrollment_no=data.student_enrollment_no,
-            student_academic_year=data.student_academic_year,
-            student_cgpa=data.student_cgpa,
-            student_skills=data.student_skills,
-            student_certifications=data.student_certifications,
-            student_projects=data.student_projects,
-            student_experience=data.student_experience,
-            student_strengths=data.student_strengths,
-            student_weaknesses=data.student_weaknesses,
-            student_career_objective=data.student_career_objective,
-            student_declaration=data.student_declaration
-        )
+#             student_department_branch=data.student_department_branch,
+#             student_university=data.student_university,
+#             student_enrollment_no=data.student_enrollment_no,
+#             student_academic_year=data.student_academic_year,
+#             student_cgpa=data.student_cgpa,
+#             student_skills=data.student_skills,
+#             student_certifications=data.student_certifications,
+#             student_projects=data.student_projects,
+#             student_experience=data.student_experience,
+#             student_strengths=data.student_strengths,
+#             student_weaknesses=data.student_weaknesses,
+#             student_career_objective=data.student_career_objective,
+#             student_declaration=data.student_declaration
+#         )
         
-        db.add(candidate)
-        db.commit()
-        db.refresh(candidate)
+#         db.add(candidate)
+#         db.commit()
+#         db.refresh(candidate)
         
-        # 2. Handle routing / scheduling panel structures
-        if data.panel_id:
-            panel = db.query(Panel).filter(Panel.id == data.panel_id).first()
-            if not panel:
-                raise HTTPException(status_code=404, detail="Selected evaluation panel not found")
-        else:
-            # Fallback named generation matching the course value
-            fallback_name = f"{db_course.value if db_course else 'General'} Panel"
-            panel = Panel(
-                panel_name=data.panel_name or fallback_name,
-                created_by=1  
-            )
-            db.add(panel)
-            db.commit()
-            db.refresh(panel)
+#         # 2. Handle routing / scheduling panel structures
+#         if data.panel_id:
+#             panel = db.query(Panel).filter(Panel.id == data.panel_id).first()
+#             if not panel:
+#                 raise HTTPException(status_code=404, detail="Selected evaluation panel not found")
+#         else:
+#             # Fallback named generation matching the course value
+#             fallback_name = f"{db_course.value if db_course else 'General'} Panel"
+#             panel = Panel(
+#                 panel_name=data.panel_name or fallback_name,
+#                 created_by=1  
+#             )
+#             db.add(panel)
+#             db.commit()
+#             db.refresh(panel)
             
-            # Add corresponding assigned panel members
-            if data.member_user_ids:
-                for user_id in data.member_user_ids:
-                    role = "chairman" if user_id == data.chairman_user_id else "member"
-                    panel_member = PanelMember(
-                        panel_id=panel.id,
-                        user_id=user_id,
-                        role=role
-                    )
-                    db.add(panel_member)
-                db.commit()
+#             # Add corresponding assigned panel members
+#             if data.member_user_ids:
+#                 for user_id in data.member_user_ids:
+#                     role = "chairman" if user_id == data.chairman_user_id else "member"
+#                     panel_member = PanelMember(
+#                         panel_id=panel.id,
+#                         user_id=user_id,
+#                         role=role
+#                     )
+#                     db.add(panel_member)
+#                 db.commit()
         
-        # 3. Complete structural interview event generation setup mapping to your candidate
-        interview = Interview(
-            candidate_id=candidate.id,
-            panel_id=panel.id,
-            scheduled_at=f"{data.interview_date} {data.start_time}",
-            status="Scheduled",
-            created_by=1,
-            interview_category=data.interview_category or (db_course.value if db_course else "General"),   
-            interview_id=interview_id,    
-        )
+#         # 3. Complete structural interview event generation setup mapping to your candidate
+#         interview = Interview(
+#             candidate_id=candidate.id,
+#             panel_id=panel.id,
+#             scheduled_at=f"{data.interview_date} {data.start_time}",
+#             status="Scheduled",
+#             created_by=1,
+#             interview_category=data.interview_category or (db_course.value if db_course else "General"),   
+#             interview_id=interview_id,    
+#         )
         
-        db.add(interview)
-        db.commit()
-        db.refresh(interview)
+#         db.add(interview)
+#         db.commit()
+#         db.refresh(interview)
         
-        return {
-            "success": True,
-            "message": "Interview scheduled successfully and course assigned directly to candidate record.",
-            "interview_id": interview_id,
-            "data": {
-                "candidate_id": candidate.id,
-                "panel_id": panel.id,
-                "interview_id": interview_id
-            }
-        }
+#         return {
+#             "success": True,
+#             "message": "Interview scheduled successfully and course assigned directly to candidate record.",
+#             "interview_id": interview_id,
+#             "data": {
+#                 "candidate_id": candidate.id,
+#                 "panel_id": panel.id,
+#                 "interview_id": interview_id
+#             }
+#         }
         
-    except HTTPException as he:
-        db.rollback()
-        raise he
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+#     except HTTPException as he:
+#         db.rollback()
+#         raise he
+#     except Exception as e:
+#         db.rollback()
+#         raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/interviews")
 def get_all_interviews(db: Session = Depends(get_db)):
     interviews = db.query(Interview).all()
@@ -812,7 +823,6 @@ def candidate_login(payload: dict, db: Session = Depends(get_db)):
                 "id": candidate.id,
                 "name": candidate.name,
                 "email": candidate.email,
-                "interview_id": candidate.interview_id
             }
         }
 
@@ -1077,43 +1087,1144 @@ async def upload_pdf_and_generate(
         print(f"❌ ERROR inside generation sequence: {str(e)}")
         return {"success": False, "error": str(e)}   
 
-@app.get("/api/get-questions-by-candidate/{candidate_id}")
-def get_questions_by_candidate(candidate_id: int, db: Session = Depends(get_db)):
-    # 1. Fetch candidate context profile matching the incoming primary key ID
-    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate profile data not found")
+# @app.get("/api/get-questions-by-candidate/{candidate_id}")
+# def get_questions_by_candidate(candidate_id: int, db: Session = Depends(get_db)):
+#     # 1. Fetch candidate context profile matching the incoming primary key ID
+#     candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+#     if not candidate:
+#         raise HTTPException(status_code=404, detail="Candidate profile data not found")
     
-    # 2. Extract course variable (Check the SQLEnum column first, fallback to standard String field)
-    raw_course = candidate.course_program or candidate.student_course_program
-    if not raw_course:
-        raise HTTPException(status_code=400, detail="No course program assignment mapping found on this student profile")
+#     # 2. Extract course variable (Check the SQLEnum column first, fallback to standard String field)
+#     raw_course = candidate.course_program or candidate.student_course_program
+#     if not raw_course:
+#         raise HTTPException(status_code=400, detail="No course program assignment mapping found on this student profile")
     
-    # Extract string value if it's a structural Enum instance
-    course_str = raw_course.value if hasattr(raw_course, 'value') else str(raw_course)
+#     # Extract string value if it's a structural Enum instance
+#     course_str = raw_course.value if hasattr(raw_course, 'value') else str(raw_course)
     
-    # 3. Pull all matching sequential questions out of the question_bank table
-    questions = db.query(Question).filter(Question.course == course_str).all()
+#     # 3. Pull all matching sequential questions out of the question_bank table
+#     questions = db.query(Question).filter(Question.course == course_str).all()
     
-    # Optional Fallback Rule: If no items exist under the explicit tag, pull "General" items
-    if not questions:
-        questions = db.query(Question).filter(Question.category.ilike("%General%")).all()
+#     # Optional Fallback Rule: If no items exist under the explicit tag, pull "General" items
+#     if not questions:
+#         questions = db.query(Question).filter(Question.category.ilike("%General%")).all()
         
+#     return {
+#         "success": True,
+#         "candidate_id": candidate.id,
+#         "candidate_name": candidate.name,
+#         "matched_course": course_str,
+#         "total_questions": len(questions),
+#         "questions": [
+#             {
+#                 "id": q.id,
+#                 "question_text": q.question_text,
+#                 "expected_answer": q.expected_answer,
+#                 "category": q.category,
+#                 "difficulty": q.difficulty,
+#                 "time_limit": q.time_limit if q.time_limit else 50
+#             }
+#             for q in questions
+#         ]
+#     }
+
+class StudentItem(BaseModel):
+    name: str
+    email: str
+    phone: str
+    department_branch: str
+
+class BulkRegistrationPayload(BaseModel):
+    course_program: str
+    students: List[StudentItem]
+
+@app.post("/api/save-bulk-students")
+def save_bulk_students(payload: BulkRegistrationPayload, db: Session = Depends(get_db)):
+    try:
+        inserted_count = 0
+        
+        # Loop through the parsed array rows extracted by your Angular app
+        for student in payload.students:
+            # Prepare an individual table record object mapping properties
+            db_candidate = Candidate(
+                name=student.name,
+                email=student.email,
+                phone=student.phone,
+                course_program=payload.course_program,       # Applied globally from your select dropdown
+                department_branch=student.department_branch  # Extracted row-by-row from Excel
+            )
+            db.add(db_candidate)
+            inserted_count += 1
+            
+        # Commit the transaction to save all records cleanly
+        db.commit()
+        
+        print(f"🎉 Successfully persisted {inserted_count} student records inside 'candidates' table.")
+        return {"success": True, "inserted_count": inserted_count}
+
+    except Exception as e:
+        db.rollback()  # Rollback if an unexpected breakdown happens to prevent corrupted tables
+        print(f"❌ Critical Database Write Anomaly: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database operational write failure: {str(e)}")
+    
+# 💡 FIX: Make sure it's attached directly to @app if written inside main.py
+@app.get("/api/candidate-courses/{email}")
+async def get_candidate_courses(email: str, db: Session = Depends(get_db)): 
+    """
+    Looks up registration entries using the student's unique email.
+    Gathers all registered courses even if they have different sequential IDs.
+    """
+    # 1. Query all entries matching this email address
+    registration_records = db.query(Candidate).filter(Candidate.email == email).all()
+    
+    if not registration_records:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"No registration history found for email address: {email}"
+        )
+    
+    # 2. Map out a unique list of their courses (e.g., ["B-Tech", "MCA"])
+    unique_allowed_tracks = list(set([record.course_program for record in registration_records]))
+    
     return {
         "success": True,
-        "candidate_id": candidate.id,
-        "candidate_name": candidate.name,
-        "matched_course": course_str,
+        "candidate_name": registration_records[0].name,
+        "allowed_courses": unique_allowed_tracks
+    }
+
+
+@app.get("/api/get-questions-by-candidate/{candidate_id}")
+async def get_self_assessment_questions(
+    candidate_id: int,
+    selected_course: str,
+    db: Session = Depends(get_db)
+):
+    """
+    1. Grabs the email associated with candidate_id.
+    2. Verifies that the email profile is registered for the selected_course on ANY row.
+    3. Fetches 5 random assessment questions from the question bank.
+    """
+    
+    # -----------------------------------------------------------------
+    # STEP 1: RESOLVE ID TO EMAIL & VALIDATE CROSS-ROW PERMISSION
+    # -----------------------------------------------------------------
+    # Find the primary student profile row first to grab their email address
+    current_candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not current_candidate:
+        raise HTTPException(status_code=404, detail="Candidate profile row not found.")
+
+    # Cross-verify using the email to check if they own a row matching the selected_course
+    registration_check = (
+        db.query(Candidate)
+        .filter(Candidate.email == current_candidate.email, Candidate.course_program == selected_course)
+        .first()
+    )
+    
+    if not registration_check:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access Denied. Candidate is not registered for the '{selected_course}' track."
+        )
+
+    # -----------------------------------------------------------------
+    # STEP 2: CONVERT STRING ENTRY TO DB ENUM TYPE
+    # -----------------------------------------------------------------
+    try:
+        course_mapping = {
+            "BBA": CourseProgram.BBA,
+            "MBA": CourseProgram.MBA,
+            "B-Tech": CourseProgram.B_TECH,
+            "MCA": CourseProgram.MCA,
+            "B.Com": CourseProgram.B_COM,
+            "M.Com": CourseProgram.M_COM
+        }
+
+        target_enum_course = course_mapping.get(selected_course)
+
+        if not target_enum_course:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid course: {selected_course}"
+            )
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Selected course track value '{selected_course}' is out of alignment."
+        )
+
+    # -----------------------------------------------------------------
+    # STEP 3: FETCH RANDOM QUESTIONS FROM THE BANK
+    # -----------------------------------------------------------------
+    all_questions = db.query(Question).all()
+
+    for q in all_questions:
+        print(
+            f"ID={q.id} | COURSE={q.course}"
+        )
+
+    questions = (
+        db.query(Question)
+        .filter(Question.course == target_enum_course)
+        .order_by(func.random())
+        .limit(5)
+        .all()
+    )
+
+    print("Questions Found:", len(questions))
+    print("Selected Course:", selected_course)
+    print("Enum Course:", target_enum_course)
+
+    if not questions:
+        raise HTTPException(
+            status_code=444, 
+            detail=f"The question bank currently does not have active evaluation inventory seeded for the track: {selected_course}"
+        )
+
+    # -----------------------------------------------------------------
+    # STEP 4: RETURN STRUCTURAL FRONTEND PAYLOAD
+    # -----------------------------------------------------------------
+    return {
+        "success": True,
+        # Make sure we use registration_check's explicit data here to align IDs perfectly!
+        "candidate_id": registration_check.id, 
+        "candidate_name": registration_check.name,
+        "matched_course": target_enum_course.value,
         "total_questions": len(questions),
         "questions": [
             {
                 "id": q.id,
                 "question_text": q.question_text,
-                "expected_answer": q.expected_answer,
-                "category": q.category,
+                "time_limit": q.time_limit,
                 "difficulty": q.difficulty,
-                "time_limit": q.time_limit if q.time_limit else 50
+                "category": q.category
+            } for q in questions
+        ]
+    }
+
+@app.post("/api/self-assessment/submit-answer")
+async def submit_self_assessment_answer(
+    background_tasks: BackgroundTasks,
+    candidate_id: int = Form(...),
+    assessment_id: str = Form(...),
+    question_id: int = Form(...),
+    answer_text: str = Form(...),
+    course: str = Form(...),
+    db: Session = Depends(get_db)
+):
+
+    new_answer = SelfAssessmentAnswer(
+        candidate_id=candidate_id,
+        assessment_id=assessment_id,
+        question_id=question_id,
+        answer_text=answer_text,
+        course=course,
+        ai_response="Processing...",
+        status="Processing"
+    )
+
+    db.add(new_answer)
+    db.commit()
+    db.refresh(new_answer)
+
+    # Trigger AI grading in background
+    background_tasks.add_task(
+        grade_self_assessment_answer,
+        new_answer.id,
+        question_id,
+        answer_text
+    )
+
+    return {
+        "success": True,
+        "message": "Answer received successfully.",
+        "answer_id": new_answer.id,
+        "assessment_id": assessment_id
+    }
+
+
+async def grade_self_assessment_answer(
+    answer_id: int,
+    question_id: int,
+    candidate_answer: str
+):
+
+    db = SessionLocal()
+
+    try:
+
+        question = db.query(Question)\
+            .filter(Question.id == question_id)\
+            .first()
+
+        if not question:
+            print(
+                f"❓ Question ID {question_id} not found."
+            )
+            return
+
+        expected = (
+            question.expected_answer
+            or "No reference answer available."
+        )
+
+        prompt = f"""
+        You are a seasoned technical interviewer grading a candidate's answer.
+
+        QUESTION:
+        {question.question_text}
+
+        EXPECTED ANSWER:
+        {expected}
+
+        CANDIDATE ANSWER:
+        {candidate_answer}
+
+        Instructions:
+        - Evaluate concept understanding.
+        - Do not require exact wording.
+        - Give a score from 0 to 10.
+        - Give detailed feedback.
+
+        Return JSON:
+        {{
+          "score": 8,
+          "feedback": "Good answer..."
+        }}
+        """
+
+        response = genai_client.models.generate_content(
+            model=PRIMARY_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=GradingSchema
+            )
+        )
+
+        result = json.loads(response.text)
+
+        final_score = int(
+            result.get("score", 0)
+        )
+
+        final_feedback = result.get(
+            "feedback",
+            "Evaluation completed."
+        )
+
+        db.query(SelfAssessmentAnswer)\
+            .filter(
+                SelfAssessmentAnswer.id == answer_id
+            )\
+            .update({
+
+                "ai_score": final_score,
+
+                "ai_response": final_feedback,
+
+                "status": "Completed"
+
+            })
+
+        db.commit()
+
+        print(
+            f"✅ Self Assessment Graded | "
+            f"Answer ID: {answer_id} | "
+            f"Score: {final_score}"
+        )
+
+    except Exception as e:
+
+        db.rollback()
+
+        error_message = str(e)
+
+        print(
+            f"❌ Self Assessment Grading Error: {error_message}"
+        )
+
+        if (
+            "RESOURCE_EXHAUSTED" in error_message
+            or "429" in error_message
+            or "503" in error_message
+        ):
+
+            db.query(SelfAssessmentAnswer)\
+                .filter(
+                    SelfAssessmentAnswer.id == answer_id
+                )\
+                .update({
+
+                    "ai_score": 0,
+
+                    "ai_response":
+                        "AI evaluation temporarily unavailable due to quota limits.",
+
+                    "status": "Pending"
+
+                })
+
+        else:
+
+            db.query(SelfAssessmentAnswer)\
+                .filter(
+                    SelfAssessmentAnswer.id == answer_id
+                )\
+                .update({
+
+                    "ai_response":
+                        f"AI Evaluation Error: {error_message[:100]}",
+
+                    "status": "Failed"
+
+                })
+
+        db.commit()
+
+    finally:
+        db.close()
+
+
+@app.post("/api/self-assessment/generate-final-result/{assessment_id}")
+async def generate_final_self_assessment_result(
+    assessment_id: str,
+    db: Session = Depends(get_db)
+):
+
+    answers = db.query(SelfAssessmentAnswer)\
+        .filter(
+            SelfAssessmentAnswer.assessment_id == assessment_id
+        )\
+        .all()
+
+    if not answers:
+        raise HTTPException(
+            status_code=404,
+            detail="No answers found for this assessment."
+        )
+
+    candidate_id = answers[0].candidate_id
+
+    total_marks = sum(
+        (a.ai_score or 0)
+        for a in answers
+    )
+
+    total_questions = len(answers)
+
+    feedback_text = "\n".join([
+        a.ai_response or ""
+        for a in answers
+    ])
+
+    course = answers[0].course
+
+    try:
+
+        prompt = f"""
+        You are an expert technical interviewer.
+
+        Assessment Statistics:
+
+        Total Questions: {total_questions}
+
+        Total Marks: {total_marks}
+
+        Individual Feedback:
+
+        {feedback_text}
+
+        Return ONLY JSON.
+
+        Required JSON Structure:
+
+        {{
+            "strengths": [
+                "strength 1",
+                "strength 2"
+            ],
+            "improvements": [
+                "improvement 1",
+                "improvement 2"
+            ],
+            "summary": "overall assessment summary"
+        }}
+        """
+
+        response = genai_client.models.generate_content(
+            model=PRIMARY_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=FinalAssessmentSchema
+            )
+        )
+
+        final_response = response.text
+
+    except Exception as e:
+
+        print(
+            f"⚠️ Failed generating overall feedback: {str(e)}"
+        )
+
+        final_response = (
+            "Assessment completed successfully. "
+            "Overall AI summary unavailable."
+        )
+
+    existing = db.query(SelfAssessmentResult)\
+        .filter(
+            SelfAssessmentResult.assessment_id == assessment_id
+        )\
+        .first()
+
+    if existing:
+
+        existing.final_marks = total_marks
+        existing.final_response = final_response
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Result updated.",
+            "result_id": existing.id
+        }
+
+    result = SelfAssessmentResult(
+        candidate_id=candidate_id,
+        assessment_id=assessment_id,
+        course=course,
+        final_marks=total_marks,
+        final_response=final_response
+    )
+
+    db.add(result)
+    db.commit()
+    db.refresh(result)
+
+    return {
+        "success": True,
+        "message": "Final result generated.",
+        "result_id": result.id,
+        "final_marks": total_marks
+    }
+
+# @app.post("/api/self-assessment/generate-final-result/{assessment_id}")
+# async def generate_final_self_assessment_result(
+#     assessment_id: str,
+#     db: Session = Depends(get_db)
+# ):
+
+#     answers = db.query(SelfAssessmentAnswer)\
+#         .filter(
+#             SelfAssessmentAnswer.assessment_id == assessment_id
+#         )\
+#         .all()
+
+#     if not answers:
+#         raise HTTPException(
+#             status_code=404,
+#             detail="No answers found for this assessment."
+#         )
+
+#     candidate_id = answers[0].candidate_id
+
+#     total_marks = sum(
+#         (a.ai_score or 0)
+#         for a in answers
+#     )
+
+#     total_questions = len(answers)
+
+#     average_score = (
+#         total_marks / total_questions
+#         if total_questions > 0
+#         else 0
+#     )
+
+#     course = "Unknown"
+
+#     strengths = []
+#     improvements = []
+
+#     if average_score >= 8:
+
+#         strengths = [
+#             "Strong understanding of core concepts",
+#             "Consistent performance across questions",
+#             "Demonstrated good technical knowledge"
+#         ]
+
+#     elif average_score >= 5:
+
+#         strengths = [
+#             "Basic conceptual understanding",
+#             "Able to answer most questions"
+#         ]
+
+#         improvements = [
+#             "Needs deeper technical knowledge",
+#             "Should improve explanation quality"
+#         ]
+
+#     else:
+
+#         improvements = [
+#             "Requires additional preparation",
+#             "Needs improvement in fundamentals",
+#             "Should practice more technical concepts"
+#         ]
+
+#     final_response = json.dumps({
+#         "strengths": strengths,
+#         "improvements": improvements,
+#         "summary":
+#             f"Candidate scored {total_marks} marks across "
+#             f"{total_questions} questions with an average score "
+#             f"of {round(average_score, 2)}."
+#     })
+
+#     existing = db.query(SelfAssessmentResult)\
+#         .filter(
+#             SelfAssessmentResult.assessment_id == assessment_id
+#         )\
+#         .first()
+
+#     if existing:
+
+#         existing.final_marks = total_marks
+#         existing.final_response = final_response
+
+#         db.commit()
+
+#         return {
+#             "success": True,
+#             "message": "Result updated.",
+#             "result_id": existing.id,
+#             "final_marks": total_marks
+#         }
+
+#     result = SelfAssessmentResult(
+#         candidate_id=candidate_id,
+#         assessment_id=assessment_id,
+#         course=course,
+#         final_marks=total_marks,
+#         final_response=final_response
+#     )
+
+#     db.add(result)
+#     db.commit()
+#     db.refresh(result)
+
+#     return {
+#         "success": True,
+#         "message": "Final result generated.",
+#         "result_id": result.id,
+#         "final_marks": total_marks
+#     }
+
+@app.get("/api/self-assessment/result/{assessment_id}")
+async def get_self_assessment_result(
+    assessment_id: str,
+    db: Session = Depends(get_db)
+):
+
+    result = db.query(SelfAssessmentResult)\
+        .filter(
+            SelfAssessmentResult.assessment_id == assessment_id
+        )\
+        .first()
+
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail="Assessment result not found."
+        )
+
+    return {
+        "success": True,
+        "result": {
+            "candidate_id": result.candidate_id,
+            "assessment_id": result.assessment_id,
+            "course": result.course,
+            "final_marks": result.final_marks,
+            "final_response": result.final_response,
+            "completed_at": result.completed_at
+        }
+    }
+
+@app.get("/api/interviews/check-schedule/{email}")
+async def check_interview_schedule(
+    email: str,
+    db: Session = Depends(get_db)
+):
+
+    # Find all candidate records for this email
+    candidate_ids = [
+        c.id
+        for c in db.query(Candidate)
+        .filter(Candidate.email == email)
+        .all()
+    ]
+
+    if not candidate_ids:
+        return {
+            "success": True,
+            "status": "none",
+            "message": "Candidate not found."
+        }
+
+    # Find latest interview among all candidate records
+    interview = (
+        db.query(Interview)
+        .filter(
+            Interview.candidate_id.in_(candidate_ids)
+        )
+        .order_by(Interview.id.desc())
+        .first()
+    )
+
+    if not interview:
+        return {
+            "success": True,
+            "status": "none",
+            "message": "No interview assigned."
+        }
+
+    # ----------------------------------
+    # COMPLETED
+    # ----------------------------------
+
+    if interview.status == "Completed":
+        return {
+            "success": True,
+            "status": "completed",
+            "message": "Interview already completed.",
+            "interview": {
+                "candidate_id": interview.candidate_id,
+                "interview_id": interview.interview_id,
+                "panel_id": interview.panel_id,
+                "course": interview.interview_category,
+                "scheduled_at": interview.scheduled_at
+            }
+        }
+
+    # ----------------------------------
+    # CANCELLED
+    # ----------------------------------
+
+    if interview.status == "Cancelled":
+        return {
+            "success": True,
+            "status": "cancelled",
+            "message": "Interview was cancelled.",
+            "interview": {
+                "candidate_id": interview.candidate_id,
+                "interview_id": interview.interview_id,
+                "panel_id": interview.panel_id,
+                "course": interview.interview_category,
+                "scheduled_at": interview.scheduled_at
+            }
+        }
+
+    # ----------------------------------
+    # DATE PARSE
+    # ----------------------------------
+
+    try:
+
+        scheduled_dt = datetime.strptime(
+            interview.scheduled_at,
+            "%Y-%m-%d %H:%M"
+        )
+
+    except Exception:
+
+        print(
+            "Scheduled Date Parse Error:",
+            interview.scheduled_at
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Invalid scheduled_at format."
+        )
+
+    now = datetime.now()
+
+    # ----------------------------------
+    # NOT TODAY
+    # ----------------------------------
+
+    if scheduled_dt.date() != now.date():
+
+        return {
+            "success": True,
+            "status": "none",
+            "message": "No interview scheduled today."
+        }
+
+    diff_minutes = (
+        scheduled_dt - now
+    ).total_seconds() / 60
+
+    # ----------------------------------
+    # UPCOMING
+    # ----------------------------------
+
+    if diff_minutes > 15:
+
+        return {
+            "success": True,
+            "status": "upcoming",
+            "message": "Interview scheduled later today.",
+            "interview": {
+                "candidate_id": interview.candidate_id,
+                "interview_id": interview.interview_id,
+                "panel_id": interview.panel_id,
+                "course": interview.interview_category,
+                "scheduled_at": interview.scheduled_at
+            }
+        }
+
+    # ----------------------------------
+    # READY
+    # ----------------------------------
+
+    if 0 <= diff_minutes <= 15:
+
+        return {
+            "success": True,
+            "status": "ready",
+            "message": "Interview ready to join.",
+            "interview": {
+                "candidate_id": interview.candidate_id,
+                "interview_id": interview.interview_id,
+                "panel_id": interview.panel_id,
+                "course": interview.interview_category,
+                "scheduled_at": interview.scheduled_at
+            }
+        }
+
+    # ----------------------------------
+    # EXPIRED
+    # ----------------------------------
+
+    return {
+        "success": True,
+        "status": "expired",
+        "message": "Interview time has passed.",
+        "interview": {
+            "candidate_id": interview.candidate_id,
+            "interview_id": interview.interview_id,
+            "panel_id": interview.panel_id,
+            "course": interview.interview_category,
+            "scheduled_at": interview.scheduled_at
+        }
+    }
+
+@app.get("/api/interviews/load-questions/{candidate_id}/{course}")
+async def load_scheduled_interview_questions(
+    candidate_id: int,
+    course: str,
+    db: Session = Depends(get_db)
+):
+
+    # Verify interview exists for this candidate/course
+    interview = (
+        db.query(Interview)
+        .filter(
+            Interview.candidate_id == candidate_id,
+            Interview.interview_category == course
+        )
+        .order_by(Interview.id.desc())
+        .first()
+    )
+
+    if not interview:
+        raise HTTPException(
+            status_code=404,
+            detail="No scheduled interview found."
+        )
+
+    questions = (
+        db.query(Question)
+        .filter(
+            Question.course == course
+        )
+        .order_by(Question.id.asc())
+        .all()
+    )
+
+    if not questions:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No questions found for course {course}"
+        )
+
+    return {
+        "success": True,
+        "candidate_id": candidate_id,
+        "interview_id": interview.interview_id,
+        "course": course,
+        "total_questions": len(questions),
+        "questions": [
+            {
+                "id": q.id,
+                "question_text": q.question_text,
+                "difficulty": q.difficulty,
+                "time_limit": q.time_limit
             }
             for q in questions
         ]
     }
+
+@app.post("/api/interviews/save-video/{interview_code}")
+async def save_video(
+    interview_code: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    try:
+
+        # --------------------------------------------------
+        # Find Interview using Interview Code
+        # --------------------------------------------------
+
+        interview = (
+            db.query(Interview)
+            .filter(
+                Interview.interview_id == interview_code
+            )
+            .first()
+        )
+
+        if not interview:
+            raise HTTPException(
+                status_code=404,
+                detail="Interview not found."
+            )
+
+        # --------------------------------------------------
+        # Create Recording Folder (if not exists)
+        # --------------------------------------------------
+
+        os.makedirs(RECORDING_BASE_PATH, exist_ok=True)
+
+        # --------------------------------------------------
+        # File Name
+        # Example:
+        # IVW-2026-6686.webm
+        # --------------------------------------------------
+
+        filename = f"{interview_code}.webm"
+
+        full_path = os.path.join(
+            RECORDING_BASE_PATH,
+            filename
+        )
+
+        full_path = os.path.normpath(full_path)
+
+        # --------------------------------------------------
+        # Save Video
+        # --------------------------------------------------
+
+        contents = await file.read()
+
+        with open(full_path, "wb") as f:
+            f.write(contents)
+
+        # --------------------------------------------------
+        # Update Interview
+        # --------------------------------------------------
+
+        interview.video_path = filename
+        interview.status = "Completed"
+
+        # --------------------------------------------------
+        # Update Candidate
+        # --------------------------------------------------
+
+        candidate = (
+            db.query(Candidate)
+            .filter(
+                Candidate.id == interview.candidate_id
+            )
+            .first()
+        )
+
+        if candidate:
+            candidate.video_path = filename
+
+        db.commit()
+
+        # --------------------------------------------------
+        # Response
+        # --------------------------------------------------
+
+        video_url = f"http://127.0.0.1:8000/videos/{filename}"
+
+        return {
+            "success": True,
+            "message": "Interview completed successfully.",
+            "interview_id": interview.interview_id,
+            "candidate_id": interview.candidate_id,
+            "status": interview.status,
+            "video_filename": filename,
+            "video_path": filename,
+            "video_url": video_url
+        }
+
+    except Exception as e:
+
+        db.rollback()
+
+        print("❌ SAVE VIDEO ERROR:", str(e))
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save interview recording: {str(e)}"
+        )
+    
+@app.get("/api/candidates/courses")
+async def get_available_courses(db: Session = Depends(get_db)):
+    courses = (
+        db.query(Candidate.course_program)
+        .distinct()
+        .order_by(Candidate.course_program.asc())
+        .all()
+    )
+
+    return {
+        "success": True,
+        "courses": [c[0] for c in courses if c[0]]
+    }
+
+@app.get("/api/candidates/course/{course}")
+async def get_candidates_by_course(
+    course: str,
+    db: Session = Depends(get_db)
+):
+
+    candidates = (
+        db.query(Candidate)
+        .filter(
+            Candidate.course_program == course
+        )
+        .order_by(Candidate.name.asc())
+        .all()
+    )
+
+    return {
+        "success": True,
+        "course": course,
+        "total_candidates": len(candidates),
+        "candidates": [
+            {
+                "id": c.id,
+                "name": c.name,
+                "email": c.email,
+                "phone": c.phone,
+                "course_program": c.course_program,
+                "department_branch": c.department_branch,
+                "video_path": c.video_path
+            }
+            for c in candidates
+        ]
+    }
+
+@app.post("/api/interviews/schedule")
+async def schedule_interview(
+    request: ScheduleInterviewRequest,
+    db: Session = Depends(get_db)
+):
+    try:
+
+        candidate = (
+            db.query(Candidate)
+            .filter(
+                Candidate.id == request.candidate_id
+            )
+            .first()
+        )
+
+        if not candidate:
+            raise HTTPException(
+                status_code=404,
+                detail="Candidate not found."
+            )
+
+        panel_id = request.panel_id
+
+        # Create panel if required
+
+        if panel_id is None:
+
+            panel = Panel(
+                panel_name=request.panel_name,
+                created_by=1
+            )
+
+            db.add(panel)
+            db.commit()
+            db.refresh(panel)
+
+            for member_id in request.member_user_ids:
+
+                role = (
+                    "chairman"
+                    if member_id == request.chairman_user_id
+                    else "member"
+                )
+
+                db.add(
+                    PanelMember(
+                        panel_id=panel.id,
+                        user_id=member_id,
+                        role=role
+                    )
+                )
+
+            db.commit()
+
+            panel_id = panel.id
+
+        scheduled_at = (
+            f"{request.interview_date} "
+            f"{request.start_time}"
+        )
+
+        interview = Interview(
+            candidate_id=request.candidate_id,
+            panel_id=panel_id,
+            scheduled_at=scheduled_at,
+            status="Scheduled",
+            created_by=1,
+            interview_category=request.interview_category,
+            interview_id=request.interview_id
+        )
+
+        db.add(interview)
+        db.commit()
+        db.refresh(interview)
+
+        return {
+            "success": True,
+            "message": "Interview scheduled successfully.",
+            "interview_id": interview.interview_id,
+            "interview_db_id": interview.id,
+            "panel_id": panel_id
+        }
+
+    except Exception as ex:
+
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(ex)
+        )

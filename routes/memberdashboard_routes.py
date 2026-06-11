@@ -103,7 +103,7 @@ def get_formatted_interviews(user_id: int, db: Session = Depends(get_db)):
 
     query = text("""
         SELECT  c.name,
-            c.interview_id,
+            i.interview_id,
             i.interview_category,
             i.candidate_id,
             i.panel_id,
@@ -178,32 +178,93 @@ def get_member_interviews(
 
 
 
+# @router.get("/candidate/{candidate_id}")
+# def get_candidate(candidate_id: int, db: Session = Depends(get_db)):
+
+#     query = text("""
+#         SELECT
+#             video_path AS recorded_video,
+#               -- ✅ ADD THIS
+#             resume_filename,
+#             id,
+#             name,
+
+#             student_course_program,
+#             student_department_branch,
+#             student_university,
+#             student_enrollment_no,
+
+#             student_dob,
+#             student_gender,
+#             phone,
+#             email,
+
+#             student_cgpa,
+#             student_category,
+#             interview_id,
+#             student_academic_year,
+#             student_skills
+#         FROM public.candidates
+#         WHERE id = :candidate_id
+#     """)
+
+#     result = db.execute(query, {"candidate_id": candidate_id}).mappings().first()
+
+#     if not result:
+#         return {"message": "Candidate not found"}
+
+#     return {
+#         "id": result["id"],
+#         "name": result["name"],
+
+#         "student_course_program": result["student_course_program"],
+#         "student_department_branch": result["student_department_branch"],
+#         "student_university": result["student_university"],
+#         "student_enrollment_no": result["student_enrollment_no"],
+
+#         "dob": result["student_dob"],
+#         "gen": result["student_gender"],
+#         "mob": result["phone"],
+#         "email": result["email"],
+
+#         "cgpa": result["student_cgpa"],
+#         "category": result["student_category"],
+#         "interview_id": result["interview_id"],
+#         "sem": result["student_academic_year"],
+
+#         "skills": result["student_skills"].split(",") if result["student_skills"] else [],
+
+#         "recordedVideo": result["recorded_video"],
+#         # ✅ ADD THIS
+#         "resumeUrl": result["resume_filename"]
+#     }
 @router.get("/candidate/{candidate_id}")
 def get_candidate(candidate_id: int, db: Session = Depends(get_db)):
 
     query = text("""
-        SELECT
-            video_path AS recorded_video,
-              -- ✅ ADD THIS
-            resume_filename,
+         SELECT
+           video_path AS recorded_video ,
+           '' as resume_filename ,
             id,
             name,
 
-            student_course_program,
-            student_department_branch,
-            student_university,
-            student_enrollment_no,
+          '' as   student_course_program,
+           '' as  student_department_branch,
+           '' as  student_university,
+          '' as   student_enrollment_no,
 
-            student_dob,
-            student_gender,
+          '' as   student_dob,
+           '' as  student_gender,
             phone,
             email,
+			course_program,
+			department_branch,
 
-            student_cgpa,
-            student_category,
-            interview_id,
-            student_academic_year,
-            student_skills
+           '' as  student_cgpa,
+          '' as   student_category,
+           '' as  interview_id,
+          '' as   student_academic_year,
+           '' as  student_skills
         FROM public.candidates
         WHERE id = :candidate_id
     """)
