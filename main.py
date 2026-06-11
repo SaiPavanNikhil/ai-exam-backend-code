@@ -75,6 +75,7 @@ app.mount(
     name="videos"
 )
 
+os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # ---------------- CORS ----------------
@@ -858,7 +859,8 @@ def candidate_login(payload: dict, db: Session = Depends(get_db)):
     }
 
 # Use the correct production model strings
-PRIMARY_MODEL = "gemini-3-flash-preview"  # ✅ Updated to latest flash model for best performance
+PRIMARY_MODEL = "gemini-2.5-flash"
+# PRIMARY_MODEL = "gemini-3-flash-preview"  # ✅ Updated to latest flash model for best performance
 
 # ================= ENFORCED JSON SCHEMAS =================
 class QuestionItem(BaseModel):
