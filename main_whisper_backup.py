@@ -45,11 +45,14 @@ app = FastAPI()
 Base.metadata.create_all(bind=engine)
 
 # 🔥 FFmpeg path
-os.environ["PATH"] += os.pathsep + r"C:\ffmpeg-8.1-essentials_build\bin"
+# os.environ["PATH"] += os.pathsep + r"C:\ffmpeg-8.1-essentials_build\bin"
+os.environ["PATH"] += os.pathsep + os.getenv("FFMPEG_PATH", "/usr/bin")
 os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "60"
 
 # 🔥 Recording path
-RECORDING_BASE_PATH = "C:/Users/saipa/OneDrive/Desktop/Recordings"
+# RECORDING_BASE_PATH = "C:/Users/saipa/OneDrive/Desktop/Recordings"
+# RECORDING_BASE_PATH = os.getenv("RECORDING_BASE_PATH", "/tmp/recordings") monika
+RECORDING_BASE_PATH = os.getenv("RECORDING_BASE_PATH", "/tmp/recordings")
 os.makedirs(RECORDING_BASE_PATH, exist_ok=True)
 
 # ---------------- CORS ----------------
@@ -341,7 +344,7 @@ Return ONLY the corrected sentence.
 """
 
         response = client.chat.completions.create(
-            model="gpt-5-mini",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You fix speech recognition errors using context."},
                 {"role": "user", "content": prompt}
@@ -374,7 +377,7 @@ async def speech_to_ai(file: UploadFile = File(...)):
 
     try:
         ai_res = client.chat.completions.create(
-            model="gpt-5-mini",
+            model="gpt-4o-mini",
             messages=[
                 {
                     "role": "system",

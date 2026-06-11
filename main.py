@@ -59,12 +59,14 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 genai_client = genai.Client(api_key=GOOGLE_API_KEY)
 
 # 🔥 FFmpeg path
-os.environ["PATH"] += os.pathsep + r"C:\ffmpeg-8.1-essentials_build\bin"
+# os.environ["PATH"] += os.pathsep + r"C:\ffmpeg-8.1-essentials_build\bin"
+os.environ["PATH"] += os.pathsep + os.getenv("FFMPEG_PATH", "/usr/bin")
 os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "60"
 
 
 # 🔥 Recording path
-RECORDING_BASE_PATH = "C:/Users/saipa/OneDrive/Desktop/Recordings"
+# RECORDING_BASE_PATH = "C:/Users/saipa/OneDrive/Desktop/Recordings"
+RECORDING_BASE_PATH = os.getenv("RECORDING_BASE_PATH", "/tmp/recordings")
 os.makedirs(RECORDING_BASE_PATH, exist_ok=True)
 
 app.mount(
@@ -298,7 +300,7 @@ Return ONLY the corrected sentence.
 """
 
         response = client.chat.completions.create(
-            model="gpt-5-mini",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You fix speech recognition errors using context."},
                 {"role": "user", "content": prompt}
@@ -647,7 +649,9 @@ def delete_interview(interview_id: str, db: Session = Depends(get_db)):
     return {"success": True, "message": "Interview deleted successfully"}
 
 
-BASE_URL = "http://127.0.0.1:8000"
+# BASE_URL = "http://127.0.0.1:8000"
+# ✅ Use env variable
+BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 # ============================================
 # FILE UPLOAD ROUTES
 # ============================================
@@ -2066,7 +2070,8 @@ async def save_video(
         # Response
         # --------------------------------------------------
 
-        video_url = f"http://127.0.0.1:8000/videos/{filename}"
+        # video_url = f"http://127.0.0.1:8000/videos/{filename}" monika
+        video_url = f"{BASE_URL}/videos/{filename}"
 
         return {
             "success": True,
