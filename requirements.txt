@@ -67,5 +67,5 @@ tzdata==2026.1
 urllib3==2.6.3
 uvicorn==0.44.0
 websocket-client==1.9.0
-websockets==16.0
+websockets==15.0.1
 google-genai==1.16.0
