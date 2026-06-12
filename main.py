@@ -100,13 +100,18 @@ app.mount(
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# allow_origins=[FRONTEND_URL],
-FRONTEND_URL = os.getenv("FRONTEND_URL", "")
+FRONTEND_URL = os.getenv("FRONTEND_URL")
 
-# ---------------- CORS ----------------
+origins = [
+    FRONTEND_URL,
+    "https://ai-exam-frontend-production.up.railway.app",
+    "http://localhost:4200",
+    "http://127.0.0.1:4200"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL],
+    allow_origins=[origin for origin in origins if origin],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
