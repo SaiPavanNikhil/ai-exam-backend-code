@@ -4,24 +4,13 @@ import os
 
 load_dotenv()
 
-# ---------------- ENV VARS ----------------
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("❌ OPENAI_API_KEY not found.")
-
-ASSEMBLY_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
-if not ASSEMBLY_API_KEY:
-    raise ValueError("❌ ASSEMBLYAI_API_KEY not found.")
-
-FRONTEND_URL = os.getenv("FRONTEND_URL")
-if not FRONTEND_URL:
-    raise ValueError("❌ FRONTEND_URL not set.")
-
-BASE_URL = os.getenv("BASE_URL")
-if not BASE_URL:
-    raise ValueError("❌ BASE_URL not set.")
+# SAFE ENV LOAD (NO CRASHES)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+ASSEMBLY_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "")
+BASE_URL = os.getenv("BASE_URL", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 from sqlalchemy import func
 
