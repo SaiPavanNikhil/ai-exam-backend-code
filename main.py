@@ -2,6 +2,27 @@
 from dotenv import load_dotenv
 import os
 
+load_dotenv()
+
+# ---------------- ENV VARS ----------------
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    raise ValueError("❌ OPENAI_API_KEY not found.")
+
+ASSEMBLY_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
+if not ASSEMBLY_API_KEY:
+    raise ValueError("❌ ASSEMBLYAI_API_KEY not found.")
+
+FRONTEND_URL = os.getenv("FRONTEND_URL")
+if not FRONTEND_URL:
+    raise ValueError("❌ FRONTEND_URL not set.")
+
+BASE_URL = os.getenv("BASE_URL")
+if not BASE_URL:
+    raise ValueError("❌ BASE_URL not set.")
+
 from sqlalchemy import func
 
 from models.SelfAssessmentResult import SelfAssessmentResult
@@ -10,7 +31,8 @@ from schemas import save_answer_request
 from schemas.grading_schema import GradingSchema, FinalAssessmentSchema
 from schemas.schedule_interview_request import ScheduleInterviewRequest
 
-load_dotenv()
+# load_dotenv()
+
 
 # ---------------- IMPORTS ----------------
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, APIRouter, Form, WebSocket, WebSocketDisconnect, BackgroundTasks, Query
@@ -78,7 +100,8 @@ app.mount(
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-FRONTEND_URL = os.getenv("FRONTEND_URL")
+# allow_origins=[FRONTEND_URL],
+FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 
 # ---------------- CORS ----------------
 app.add_middleware(
@@ -654,7 +677,9 @@ def delete_interview(interview_id: str, db: Session = Depends(get_db)):
 
 # BASE_URL = "http://127.0.0.1:8000"
 # ✅ Use env variable
-BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
+BASE_URL = os.getenv("BASE_URL")
+if not BASE_URL:
+    raise ValueError("❌ BASE_URL environment variable is not set.")
 # ============================================
 # FILE UPLOAD ROUTES
 # ============================================
