@@ -672,11 +672,12 @@ def delete_interview(interview_id: str, db: Session = Depends(get_db)):
     return {"success": True, "message": "Interview deleted successfully"}
 
 
-# BASE_URL = "http://127.0.0.1:8000"
-# ✅ Use env variable
-BASE_URL = os.getenv("BASE_URL")
-if not BASE_URL:
-    raise ValueError("❌ BASE_URL environment variable is not set.")
+BASE_URL = os.getenv(
+    "BASE_URL",
+    "https://ai-exam-backend-code-production.up.railway.app"
+)
+
+print(f"✅ BASE_URL = {BASE_URL}")
 # ============================================
 # FILE UPLOAD ROUTES
 # ============================================
