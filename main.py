@@ -116,18 +116,21 @@ mp_face_detection = mp.solutions.face_detection
 # ---------------- OPENAI CLIENT ----------------
 api_key = os.getenv("OPENAI_API_KEY")
 
-if not api_key:
-    raise ValueError("❌ OPENAI_API_KEY not found. Check your .env file.")
+client = None
 
-client = OpenAI(api_key=api_key)
+if api_key:
+    client = OpenAI(api_key=api_key)
+    print("✅ OPENAI_API_KEY loaded successfully")
+else:
+    print("⚠️ OPENAI_API_KEY is not configured.")
 
-print("✅ API KEY LOADED SUCCESSFULLY")
-# ---------------- Assembly Ai CLIENT ----------------
-
+# ---------------- AssemblyAI ----------------
 ASSEMBLY_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
 
-if not ASSEMBLY_API_KEY:
-    raise ValueError("❌ ASSEMBLYAI_API_KEY not found in .env")
+if ASSEMBLY_API_KEY:
+    print("✅ ASSEMBLYAI_API_KEY loaded successfully")
+else:
+    print("⚠️ ASSEMBLYAI_API_KEY is not configured.")
 
 # ---------------- HELPER ----------------
 def is_repetitive(text: str) -> bool:
