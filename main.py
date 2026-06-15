@@ -763,62 +763,148 @@ def get_interview(interview_id: int, db: Session = Depends(get_db)):
         "video_path": interview.video_path
     }   
 
+# @app.websocket("/ws/audio")
+# async def websocket_audio(websocket: WebSocket):
+
+#     await websocket.accept()
+#     print("✅ Angular client connected")
+
+#     assembly_url = "wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&speech_model=u3-rt-pro"
+
+#     try:
+#         async with websockets.connect(
+#             assembly_url,
+#             additional_headers={"Authorization": ASSEMBLY_API_KEY}
+#         ) as assembly_ws:
+
+#             print("✅ Connected to AssemblyAI")
+
+#             buffer = b""  # 🔥 accumulate audio chunks
+
+#             # 🔥 SEND AUDIO (Angular → AssemblyAI)
+#             async def send_audio():
+#                 try:
+#                     while True:
+#                         chunk = await websocket.receive_bytes()
+
+#                         if not chunk:
+#                             continue
+
+#                         print("📤 Sending RAW PCM:", len(chunk))
+#                         await assembly_ws.send(chunk)
+
+#                 except WebSocketDisconnect:
+#                     print("❌ Angular disconnected")
+#             # 🔥 RECEIVE TRANSCRIPT (AssemblyAI → Angular)
+#             async def receive_transcript():
+#                 try:
+#                     async for message in assembly_ws:
+#                         try:
+#                             data = json.loads(message)
+#                         except Exception:
+#                             print("⚠️ Invalid JSON:", message)
+#                             continue
+
+#                         print("📩 AssemblyAI:", data)
+
+#                         if data.get("type") == "Turn":
+#                             if data.get("end_of_turn"):  # ✅ ONLY FINAL TEXT
+#                                 await websocket.send_text(json.dumps(data))
+
+#                 except Exception as e:
+#                     print("❌ AssemblyAI error:", e)
+
+#             # 🔥 run both
+#             await asyncio.gather(send_audio(), receive_transcript())
+
+#     except Exception as e:
+#         print("❌ WebSocket Error:", e)
+
 @app.websocket("/ws/audio")
 async def websocket_audio(websocket: WebSocket):
+
+    print("========== NEW WEBSOCKET REQUEST ==========")
 
     await websocket.accept()
     print("✅ Angular client connected")
 
-    assembly_url = "wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&speech_model=u3-rt-pro"
+    if not ASSEMBLY_API_KEY:
+        print("❌ ASSEMBLYAI_API_KEY is missing")
+        await websocket.close(code=1011)
+        return
+
+    assembly_url = (
+        "wss://streaming.assemblyai.com/v3/ws"
+        "?sample_rate=16000&speech_model=u3-rt-pro"
+    )
 
     try:
+
+        print("🔌 Connecting to AssemblyAI...")
+
         async with websockets.connect(
             assembly_url,
-            additional_headers={"Authorization": ASSEMBLY_API_KEY}
+            additional_headers={
+                "Authorization": ASSEMBLY_API_KEY
+            }
         ) as assembly_ws:
 
             print("✅ Connected to AssemblyAI")
 
-            buffer = b""  # 🔥 accumulate audio chunks
-
-            # 🔥 SEND AUDIO (Angular → AssemblyAI)
             async def send_audio():
                 try:
+
                     while True:
+
                         chunk = await websocket.receive_bytes()
 
-                        if not chunk:
-                            continue
+                        print(f"📤 Received audio chunk: {len(chunk)} bytes")
 
-                        print("📤 Sending RAW PCM:", len(chunk))
                         await assembly_ws.send(chunk)
 
                 except WebSocketDisconnect:
                     print("❌ Angular disconnected")
-            # 🔥 RECEIVE TRANSCRIPT (AssemblyAI → Angular)
-            async def receive_transcript():
-                try:
-                    async for message in assembly_ws:
-                        try:
-                            data = json.loads(message)
-                        except Exception:
-                            print("⚠️ Invalid JSON:", message)
-                            continue
-
-                        print("📩 AssemblyAI:", data)
-
-                        if data.get("type") == "Turn":
-                            if data.get("end_of_turn"):  # ✅ ONLY FINAL TEXT
-                                await websocket.send_text(json.dumps(data))
 
                 except Exception as e:
-                    print("❌ AssemblyAI error:", e)
+                    print("❌ send_audio Error:", str(e))
 
-            # 🔥 run both
-            await asyncio.gather(send_audio(), receive_transcript())
+            async def receive_transcript():
+                try:
+
+                    async for message in assembly_ws:
+
+                        print("📩 AssemblyAI Raw:", message)
+
+                        try:
+                            data = json.loads(message)
+                        except Exception as ex:
+                            print("⚠️ Invalid JSON:", ex)
+                            continue
+
+                        if (
+                            data.get("type") == "Turn"
+                            and data.get("end_of_turn")
+                        ):
+
+                            print(
+                                "📝 Final Transcript:",
+                                data.get("transcript")
+                            )
+
+                            await websocket.send_text(
+                                json.dumps(data)
+                            )
+
+                except Exception as e:
+                    print("❌ receive_transcript Error:", str(e))
+
+            await asyncio.gather(
+                send_audio(),
+                receive_transcript()
+            )
 
     except Exception as e:
-        print("❌ WebSocket Error:", e)
+        print("❌ WebSocket Error:", str(e))
 
 
 @app.post("/api/candidate/login")
