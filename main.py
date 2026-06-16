@@ -1458,25 +1458,22 @@ async def submit_self_assessment_answer(
         "assessment_id": assessment_id
     }
 
+import time
+import random as _random
 
 async def grade_self_assessment_answer(
     answer_id: int,
     question_id: int,
     candidate_answer: str
 ):
-
     db = SessionLocal()
-
     try:
-
         question = db.query(Question)\
             .filter(Question.id == question_id)\
             .first()
 
         if not question:
-            print(
-                f"❓ Question ID {question_id} not found."
-            )
+            print(f"❓ Question ID {question_id} not found.")
             return
 
         expected = (
@@ -1509,94 +1506,97 @@ async def grade_self_assessment_answer(
         }}
         """
 
-        response = genai_client.models.generate_content(
-            model=PRIMARY_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=GradingSchema
-            )
-        )
+        result = None
 
-        result = json.loads(response.text)
+        # ── STEP 1: TRY GEMINI WITH 3 RETRIES ──────────────────────
+        for attempt in range(3):
+            try:
+                response = genai_client.models.generate_content(
+                    model=PRIMARY_MODEL,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=GradingSchema
+                    )
+                )
+                result = json.loads(response.text)
+                print(f"✅ Gemini graded on attempt {attempt + 1}")
+                break
 
-        final_score = int(
-            result.get("score", 0)
-        )
+            except Exception as e:
+                error_str = str(e)
+                is_quota = any(x in error_str for x in [
+                    "503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"
+                ])
 
-        final_feedback = result.get(
-            "feedback",
-            "Evaluation completed."
-        )
+                if is_quota and attempt < 2:
+                    wait = (2 ** attempt) + _random.uniform(0, 1)
+                    print(f"⚠️ Gemini quota hit (attempt {attempt + 1}/3), retrying in {wait:.1f}s...")
+                    time.sleep(wait)
+                    continue
+                else:
+                    print(f"⚠️ Gemini failed after {attempt + 1} attempt(s): {error_str}")
+                    break
 
-        db.query(SelfAssessmentAnswer)\
-            .filter(
-                SelfAssessmentAnswer.id == answer_id
-            )\
-            .update({
+        # ── STEP 2: FALLBACK TO OPENAI IF GEMINI FAILED ─────────────
+        if result is None:
+            print("🔄 Falling back to OpenAI for grading...")
+            try:
+                if not client:
+                    raise Exception("OpenAI client not configured.")
 
-                "ai_score": final_score,
+                oai_response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"}
+                )
+                result = json.loads(oai_response.choices[0].message.content)
+                print("✅ OpenAI fallback grading succeeded.")
 
-                "ai_response": final_feedback,
+            except Exception as oai_err:
+                print(f"❌ OpenAI fallback also failed: {oai_err}")
+                result = None
 
-                "status": "Completed"
-
-            })
-
-        db.commit()
-
-        print(
-            f"✅ Self Assessment Graded | "
-            f"Answer ID: {answer_id} | "
-            f"Score: {final_score}"
-        )
-
-    except Exception as e:
-
-        db.rollback()
-
-        error_message = str(e)
-
-        print(
-            f"❌ Self Assessment Grading Error: {error_message}"
-        )
-
-        if (
-            "RESOURCE_EXHAUSTED" in error_message
-            or "429" in error_message
-            or "503" in error_message
-        ):
+        # ── STEP 3: SAVE RESULT ──────────────────────────────────────
+        if result:
+            final_score = int(result.get("score", 0))
+            final_feedback = result.get("feedback", "Evaluation completed.")
 
             db.query(SelfAssessmentAnswer)\
-                .filter(
-                    SelfAssessmentAnswer.id == answer_id
-                )\
+                .filter(SelfAssessmentAnswer.id == answer_id)\
                 .update({
-
-                    "ai_score": 0,
-
-                    "ai_response":
-                        "AI evaluation temporarily unavailable due to quota limits.",
-
-                    "status": "Pending"
-
+                    "ai_score": final_score,
+                    "ai_response": final_feedback,
+                    "status": "Completed"
                 })
+            db.commit()
+            print(
+                f"✅ Self Assessment Graded | "
+                f"Answer ID: {answer_id} | "
+                f"Score: {final_score}"
+            )
 
         else:
-
+            # Both Gemini and OpenAI failed
             db.query(SelfAssessmentAnswer)\
-                .filter(
-                    SelfAssessmentAnswer.id == answer_id
-                )\
+                .filter(SelfAssessmentAnswer.id == answer_id)\
                 .update({
-
-                    "ai_response":
-                        f"AI Evaluation Error: {error_message[:100]}",
-
-                    "status": "Failed"
-
+                    "ai_score": None,
+                    "ai_response": "Grading temporarily unavailable. Will retry.",
+                    "status": "Pending"
                 })
+            db.commit()
+            print(f"⚠️ Both AI providers failed for Answer ID: {answer_id}. Marked Pending.")
 
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Self Assessment Grading Error: {str(e)}")
+        db.query(SelfAssessmentAnswer)\
+            .filter(SelfAssessmentAnswer.id == answer_id)\
+            .update({
+                "ai_response": f"AI Evaluation Error: {str(e)[:100]}",
+                "status": "Failed"
+            })
         db.commit()
 
     finally:
