@@ -1856,10 +1856,13 @@ async def retry_pending_answers(
     ).all()
 
     if not pending:
-        return {"success": True, "message": "No pending answers to retry.", "count": 0}
+        return {
+            "success": True,
+            "message": "No pending answers to retry.",
+            "count": 0
+        }
 
     for answer in pending:
-        # Reset status so we know it's being retried
         answer.ai_response = "Retrying..."
         answer.status = "Processing"
         background_tasks.add_task(
