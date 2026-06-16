@@ -1859,6 +1859,53 @@ async def generate_final_self_assessment_result(
 #         "final_marks": total_marks
 #     }
 
+@app.get("/api/self-assessment/result/{assessment_id}")
+async def get_self_assessment_result(
+    assessment_id: str,
+    db: Session = Depends(get_db)
+):
+
+    result = db.query(SelfAssessmentResult)\
+        .filter(
+            SelfAssessmentResult.assessment_id == assessment_id
+        )\
+        .first()
+
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail="Assessment result not found."
+        )
+
+    # Calculate maximum marks
+    total_questions = db.query(SelfAssessmentAnswer)\
+        .filter(
+            SelfAssessmentAnswer.assessment_id == assessment_id
+        )\
+        .count()
+
+    maximum_marks = total_questions * 10
+
+    percentage = round(
+        (result.final_marks / maximum_marks) * 100,
+        2
+    ) if maximum_marks > 0 else 0
+
+    return {
+        "success": True,
+        "result": {
+            "candidate_id": result.candidate_id,
+            "assessment_id": result.assessment_id,
+            "course": result.course,
+            "final_marks": result.final_marks,
+            "maximum_marks": maximum_marks,
+            "percentage": percentage,
+            "final_response": result.final_response,
+            "completed_at": result.completed_at
+        }
+    }
+
+
 @app.post("/api/self-assessment/retry-pending/{assessment_id}")
 async def retry_pending_answers(
     assessment_id: str,
