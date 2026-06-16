@@ -1,7 +1,8 @@
 # 🔥 LOAD ENV FIRST (VERY IMPORTANT)
 from dotenv import load_dotenv
 import os
-
+import time
+import random as _random
 load_dotenv()
 
 # SAFE ENV LOAD (NO CRASHES)
