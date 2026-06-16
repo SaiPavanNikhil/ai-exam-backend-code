@@ -1631,6 +1631,14 @@ async def generate_final_self_assessment_result(
 
     total_questions = len(answers)
 
+    # ⭐ NEW
+    maximum_marks = total_questions * 10
+
+    percentage = round(
+        (total_marks / maximum_marks) * 100,
+        2
+    ) if maximum_marks > 0 else 0
+
     feedback_text = "\n".join([
         a.ai_response or ""
         for a in answers
@@ -1647,7 +1655,9 @@ async def generate_final_self_assessment_result(
 
         Total Questions: {total_questions}
 
-        Total Marks: {total_marks}
+        Total Marks: {total_marks} / {maximum_marks}
+
+        Percentage: {percentage}%
 
         Individual Feedback:
 
@@ -1708,7 +1718,10 @@ async def generate_final_self_assessment_result(
         return {
             "success": True,
             "message": "Result updated.",
-            "result_id": existing.id
+            "result_id": existing.id,
+            "final_marks": total_marks,
+            "maximum_marks": maximum_marks,
+            "percentage": percentage
         }
 
     result = SelfAssessmentResult(
@@ -1727,7 +1740,9 @@ async def generate_final_self_assessment_result(
         "success": True,
         "message": "Final result generated.",
         "result_id": result.id,
-        "final_marks": total_marks
+        "final_marks": total_marks,
+        "maximum_marks": maximum_marks,
+        "percentage": percentage
     }
 
 # @app.post("/api/self-assessment/generate-final-result/{assessment_id}")
