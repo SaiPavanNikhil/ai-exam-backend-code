@@ -1843,34 +1843,37 @@ async def generate_final_self_assessment_result(
 #         "final_marks": total_marks
 #     }
 
-@app.get("/api/self-assessment/result/{assessment_id}")
-async def get_self_assessment_result(
+@app.post("/api/self-assessment/retry-pending/{assessment_id}")
+async def retry_pending_answers(
     assessment_id: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
+    pending = db.query(SelfAssessmentAnswer).filter(
+        SelfAssessmentAnswer.assessment_id == assessment_id,
+        SelfAssessmentAnswer.status == "Pending"
+    ).all()
 
-    result = db.query(SelfAssessmentResult)\
-        .filter(
-            SelfAssessmentResult.assessment_id == assessment_id
-        )\
-        .first()
+    if not pending:
+        return {"success": True, "message": "No pending answers to retry.", "count": 0}
 
-    if not result:
-        raise HTTPException(
-            status_code=404,
-            detail="Assessment result not found."
+    for answer in pending:
+        # Reset status so we know it's being retried
+        answer.ai_response = "Retrying..."
+        answer.status = "Processing"
+        background_tasks.add_task(
+            grade_self_assessment_answer,
+            answer.id,
+            answer.question_id,
+            answer.answer_text
         )
+
+    db.commit()
 
     return {
         "success": True,
-        "result": {
-            "candidate_id": result.candidate_id,
-            "assessment_id": result.assessment_id,
-            "course": result.course,
-            "final_marks": result.final_marks,
-            "final_response": result.final_response,
-            "completed_at": result.completed_at
-        }
+        "message": f"Retrying {len(pending)} pending answers.",
+        "count": len(pending)
     }
 
 @app.get("/api/interviews/check-schedule/{email}")
@@ -1958,6 +1961,7 @@ async def check_interview_schedule(
             "%Y-%m-%d %H:%M"
         )
 
+    
     except Exception:
 
         print(
