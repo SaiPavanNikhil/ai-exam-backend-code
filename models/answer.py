@@ -10,7 +10,7 @@ class Answer(Base):
     candidate_id = Column(Integer)
 
     # 🔥 NEW (IMPORTANT)
-    interview_id =Column(Integer, index=True)
+    interview_id =Column(String, index=True)
 
     question_id = Column(Integer, ForeignKey("question_bank.id"))
 

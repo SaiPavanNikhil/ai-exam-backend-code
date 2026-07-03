@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum as SQLEnum
+from sqlalchemy import BigInteger, Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
@@ -37,6 +37,15 @@ class Candidate(Base):
     department_branch = Column(String(100), nullable=True) 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     video_path = Column(String, nullable=True)
+
+    year = Column(String(50), nullable=True)
+    semester = Column(Integer, nullable=True)
+    # ADD THIS:
+    course_id = Column(BigInteger, ForeignKey("course_master.course_id"), nullable=True)
+    
+    # Optional: relationship for easy joins
+    course = relationship("CourseMaster", foreign_keys=[course_id])
+
 
 
 class Panel(Base):
@@ -81,19 +90,69 @@ class PanelMember(Base):
 class Interview(Base):
     __tablename__ = "interviews"
     __table_args__ = {'extend_existing': True}
-    
-    id = Column(Integer, primary_key=True, index=True)
-    candidate_id = Column(Integer, ForeignKey("candidates.id"))
-    panel_id = Column(Integer, ForeignKey("panels.id"))
-    scheduled_at = Column(String(100))  
-    status = Column(String(50), default="Scheduled")
-    created_by = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    
-    # Relationships
-    candidate = relationship("Candidate")
-    panel = relationship("Panel", back_populates="interviews")
 
-    video_path = Column(String, nullable=True)
-    interview_category = Column(String, nullable=True)
-    interview_id = Column(String(50), nullable=True)
+    id = Column(Integer, primary_key=True, index=True)
+
+    panel_id = Column(
+        Integer,
+        ForeignKey("panels.id"),
+        nullable=False
+    )
+
+    course_id = Column(
+        BigInteger,
+        ForeignKey("course_master.course_id"),
+        nullable=False
+    )
+
+    scheduled_at = Column(String(100))
+    scheduled_end_at = Column(String(100))
+
+    status = Column(
+        String(50),
+        default="Scheduled"
+    )
+
+    created_by = Column(
+        Integer,
+        ForeignKey("users.id")
+    )
+
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    video_path = Column(
+        String,
+        nullable=True
+    )
+
+    # "interview" OR subject_id (stored as string)
+    interview_type = Column(
+        String(50),
+        nullable=False
+    )
+
+    interview_id = Column(
+        String(50),
+        nullable=False,
+        unique=True
+    )
+
+    interview_name = Column(
+        String(100),
+        nullable=False
+    )
+
+    # Relationships
+    panel = relationship(
+        "Panel",
+        back_populates="interviews"
+    )
+
+    course = relationship(
+        "CourseMaster"
+    )
+
+    

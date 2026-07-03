@@ -15,7 +15,8 @@ def get_dashboard(user_id: int, db: Session = Depends(get_db)):
     COUNT(DISTINCT i.id) - COUNT(DISTINCT fe.candidate_id) AS pending,
     COUNT(DISTINCT i.id) - COUNT(DISTINCT fe.candidate_id) AS in_progress
 FROM public.interviews i JOIN public.panel_members pm  ON i.panel_id = pm.panel_id
-LEFT JOIN public.final_evaluation fe  ON pm.user_id = fe.memberid AND i.candidate_id = fe.candidate_id
+Join panel_candidates pc on i.panel_id = pc.panel_id and i.interview_id = pc.interview_id
+LEFT JOIN public.final_evaluation fe  ON pm.user_id = fe.memberid 
 WHERE pm.user_id = :user_id
     """)
 
@@ -105,14 +106,15 @@ def get_formatted_interviews(user_id: int, db: Session = Depends(get_db)):
         SELECT  c.name,
             i.interview_id,
             i.interview_category,
-            i.candidate_id,
             i.panel_id,
+            pc.candidate_id,
             i.status,
             TO_CHAR(i.scheduled_at::timestamp, 'DD Mon YYYY HH12:MI AM') AS scheduled_at,
             pm.role  
         FROM public.interviews i 
         JOIN public.panel_members pm ON i.panel_id = pm.panel_id
-        JOIN public.candidates c ON c.id = i.candidate_id
+		Left Join panel_candidates pc on i.panel_id = pc.panel_id and i.interview_id = pc.interview_id
+        JOIN public.candidates c ON c.id = pc.candidate_id
         WHERE pm.user_id = :user_id
     """)
 
@@ -149,13 +151,14 @@ def get_member_interviews(
             pm.user_id, 
             pm.role,
             c.name, 
-            i.candidate_id, 
+            pc.candidate_id, 
             i.status
         FROM panel_members pm
         JOIN interviews i ON pm.panel_id = i.panel_id
-        JOIN candidates c ON c.id = i.candidate_id
+		Left Join panel_candidates pc on i.panel_id = pc.panel_id and i.interview_id = pc.interview_id
+        JOIN candidates c ON c.id = pc.candidate_id
         WHERE pm.user_id = :user_id  
-        AND i.candidate_id = :candidate_id
+        AND pc.candidate_id = :candidate_id
     """)
 
     result = db.execute(query, {
@@ -340,7 +343,6 @@ def get_candidate(candidate_id: int, db: Session = Depends(get_db)):
 #         ]
 #     }
 
-
 @router.get("/qa-evaluation-log/{candidate_id}/{member_id}")
 def get_candidate_questionAndAnswer(
     candidate_id: int,
@@ -349,23 +351,52 @@ def get_candidate_questionAndAnswer(
 ):
 
     query = text("""
-                 
-select a.id AS answer_id, i.candidate_id, q.id AS question_id,q.question_text,q.expected_answer, a.answer_text,a.ai_response, a.ai_score,
-   COALESCE(fe.score, 0) AS score
-from public.interviews i join public.panel_members pm  ON i.panel_id = pm.panel_id
-left join public.answers a on i.panel_id=a.panel_id  and i.candidate_id=a.candidate_id::int
-join public.question_bank q  ON a.question_id = q.id
-LEFT JOIN public.final_evaluation fe ON pm.user_id = fe.memberid 
-AND i.candidate_id = fe.candidate_id AND q.id = fe.question_id   -- ✅ IMPORTANT FIX
-where i.candidate_id=:candidate_id and pm.user_id = :member_id
+        SELECT
+            a.id AS answer_id,
+            pc.candidate_id,
+            q.id AS question_id,
+            q.question_text,
+            q.expected_answer,
+            a.answer_text,
+            a.ai_response,
+            a.ai_score,
+            COALESCE(fe.score, 0) AS score
 
-  
+        FROM public.panel_candidates pc
+
+        JOIN public.interviews i
+            ON i.panel_id = pc.panel_id
+           AND i.interview_id = pc.interview_id
+
+        JOIN public.panel_members pm
+            ON pm.panel_id = pc.panel_id
+
+        JOIN public.answers a
+            ON a.panel_id = pc.panel_id
+           AND a.interview_id = pc.interview_id
+           AND a.candidate_id = pc.candidate_id::text
+
+        JOIN public.question_bank q
+            ON q.id = a.question_id
+
+        LEFT JOIN public.final_evaluation fe
+            ON fe.memberid = pm.user_id
+           AND fe.candidate_id = pc.candidate_id
+           AND fe.question_id = q.id
+
+        WHERE pc.candidate_id = :candidate_id
+          AND pm.user_id = :member_id
+
+        ORDER BY q.id;
     """)
 
-    results = db.execute(query, {
-        "candidate_id": candidate_id,
-        "member_id": member_id
-    }).mappings().all()
+    results = db.execute(
+        query,
+        {
+            "candidate_id": candidate_id,
+            "member_id": member_id
+        }
+    ).mappings().all()
 
     if not results:
         return {"message": "No Q&A found for this candidate"}
@@ -387,8 +418,6 @@ where i.candidate_id=:candidate_id and pm.user_id = :member_id
         ]
     }
 
-
-    # ✅ MOVE HERE (OUTSIDE FUNCTION)
 
 # @router.post("/final-evaluation")
 # def save_final_evaluation(data: dict, db: Session = Depends(get_db)):
@@ -526,38 +555,55 @@ def save_final_evaluation(data: dict, db: Session = Depends(get_db)):
 def get_panel_members(panel_id: int, db: Session = Depends(get_db)):
 
     query = text("""
-        SELECT 
+        SELECT
             u.name,
             u.role AS user_role,
             u.designation,
-            i.candidate_id,
+
+            pc.candidate_id,
+
             i.panel_id,
+
             p.user_id AS memberid,
             p.role AS panel_role,
 
-            CASE 
-                WHEN fe.id IS NOT NULL THEN 'Done' 
-                ELSE 'Pending' 
+            CASE
+                WHEN fe.id IS NOT NULL THEN 'Done'
+                ELSE 'Pending'
             END AS status
 
         FROM public.interviews i
 
-        JOIN public.panel_members p 
-            ON i.panel_id = p.panel_id
+        JOIN public.panel_candidates pc
+            ON pc.panel_id = i.panel_id
+           AND pc.interview_id = i.interview_id
 
-        JOIN public.users u 
-            ON p.user_id = u.id
+        JOIN public.panel_members p
+            ON p.panel_id = i.panel_id
+
+        JOIN public.users u
+            ON u.id = p.user_id
 
         LEFT JOIN (
-            SELECT DISTINCT ON (candidate_id, memberid) 
-                   id, candidate_id, memberid
+            SELECT DISTINCT ON (candidate_id, memberid)
+                   id,
+                   candidate_id,
+                   memberid
             FROM public.final_evaluation
             ORDER BY candidate_id, memberid, created_at DESC
         ) fe
-        ON fe.candidate_id = i.candidate_id 
-        AND fe.memberid = p.user_id
+            ON fe.candidate_id = pc.candidate_id
+           AND fe.memberid = p.user_id
 
-        WHERE p.panel_id = :panel_id
+        WHERE i.panel_id = :panel_id
+
+        ORDER BY
+            pc.candidate_id,
+            CASE
+                WHEN p.role = 'chairman' THEN 0
+                ELSE 1
+            END,
+            u.name;
     """)
 
     result = db.execute(query, {"panel_id": panel_id})
@@ -575,7 +621,6 @@ def get_panel_members(panel_id: int, db: Session = Depends(get_db)):
         }
         for row in result
     ]
-
 
 
 

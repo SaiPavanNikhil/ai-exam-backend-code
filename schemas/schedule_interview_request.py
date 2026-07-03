@@ -1,15 +1,23 @@
+from typing import List, Optional
+
 from pydantic import BaseModel
 
 class ScheduleInterviewRequest(BaseModel):
-    candidate_id: int
-    interview_category: str
+    interview_id: str
+
+    course_id: int
+    subject_id: Optional[int] = None
+
+    candidate_ids: List[int]
+
     interview_date: str
     start_time: str
     end_time: str
-    interview_id: str
 
-    panel_id: int | None = None
+    interview_name: str
 
-    panel_name: str | None = None
-    chairman_user_id: int | None = None
-    member_user_ids: list[int] = []
+    panel_id: Optional[int] = None
+
+    panel_name: Optional[str] = None
+    member_user_ids: List[int] = []
+    chairman_user_id: Optional[int] = None
