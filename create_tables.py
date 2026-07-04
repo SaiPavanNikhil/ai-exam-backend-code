@@ -7,6 +7,8 @@ from models.question import Question
 from models.answer import Answer
 from models.SelfAssessmentAnswer import SelfAssessmentAnswer
 from models.SelfAssessmentResult import SelfAssessmentResult
+from models.course_master import CourseMaster
+from models.subject_master import SubjectMaster
 
 Base.metadata.create_all(bind=engine)
 print('Tables created!')

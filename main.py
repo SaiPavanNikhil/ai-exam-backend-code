@@ -1281,39 +1281,41 @@ class StudentItem(BaseModel):
     email: str
     phone: str
     department_branch: str
+    year: Optional[str] = None
+    semester: Optional[int] = None
 
 class BulkRegistrationPayload(BaseModel):
     course_program: str
     students: List[StudentItem]
 
-@app.post("/api/save-bulk-students")
-def save_bulk_students(payload: BulkRegistrationPayload, db: Session = Depends(get_db)):
-    try:
-        inserted_count = 0
+# @app.post("/api/save-bulk-students")
+# def save_bulk_students(payload: BulkRegistrationPayload, db: Session = Depends(get_db)):
+#     try:
+#         inserted_count = 0
         
-        # Loop through the parsed array rows extracted by your Angular app
-        for student in payload.students:
-            # Prepare an individual table record object mapping properties
-            db_candidate = Candidate(
-                name=student.name,
-                email=student.email,
-                phone=student.phone,
-                course_program=payload.course_program,       # Applied globally from your select dropdown
-                department_branch=student.department_branch  # Extracted row-by-row from Excel
-            )
-            db.add(db_candidate)
-            inserted_count += 1
+#         # Loop through the parsed array rows extracted by your Angular app
+#         for student in payload.students:
+#             # Prepare an individual table record object mapping properties
+#             db_candidate = Candidate(
+#                 name=student.name,
+#                 email=student.email,
+#                 phone=student.phone,
+#                 course_program=payload.course_program,       # Applied globally from your select dropdown
+#                 department_branch=student.department_branch  # Extracted row-by-row from Excel
+#             )
+#             db.add(db_candidate)
+#             inserted_count += 1
             
-        # Commit the transaction to save all records cleanly
-        db.commit()
+#         # Commit the transaction to save all records cleanly
+#         db.commit()
         
-        print(f"🎉 Successfully persisted {inserted_count} student records inside 'candidates' table.")
-        return {"success": True, "inserted_count": inserted_count}
+#         print(f"🎉 Successfully persisted {inserted_count} student records inside 'candidates' table.")
+#         return {"success": True, "inserted_count": inserted_count}
 
-    except Exception as e:
-        db.rollback()  # Rollback if an unexpected breakdown happens to prevent corrupted tables
-        print(f"❌ Critical Database Write Anomaly: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database operational write failure: {str(e)}")
+#     except Exception as e:
+#         db.rollback()  # Rollback if an unexpected breakdown happens to prevent corrupted tables
+#         print(f"❌ Critical Database Write Anomaly: {str(e)}")
+#         raise HTTPException(status_code=500, detail=f"Database operational write failure: {str(e)}")
     
 # 💡 FIX: Make sure it's attached directly to @app if written inside main.py
 @app.get("/api/candidate-courses/{email}")
@@ -3052,39 +3054,89 @@ async def upload_pdf_and_generate(
 
 # ///////////////////////////////////////////////
 @app.post("/api/save-bulk-students")
-def save_bulk_students(payload: BulkRegistrationPayload, db: Session = Depends(get_db)):
+def save_bulk_students(
+    payload: BulkRegistrationPayload,
+    db: Session = Depends(get_db)
+):
     try:
-        # ✅ Move lookup INSIDE the try block
-        course_master_row = db.query(CourseMaster).filter(
-            CourseMaster.course_code == payload.course_program
-        ).first()
-        resolved_course_id = course_master_row.course_id if course_master_row else None
+        # Convert incoming course_program (actually course_id from frontend)
+        resolved_course_id = int(payload.course_program)
 
-        print(f"🔍 Resolved course_id: {resolved_course_id} for course_code: {payload.course_program}")
+        # Fetch course details
+        course_master_row = (
+            db.query(CourseMaster)
+            .filter(CourseMaster.course_id == resolved_course_id)
+            .first()
+        )
+
+        if not course_master_row:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Course not found for course_id={resolved_course_id}"
+            )
+
+        print(
+            f"🔍 Resolved Course -> "
+            f"ID: {course_master_row.course_id}, "
+            f"Code: {course_master_row.course_code}"
+        )
 
         inserted_count = 0
+
         for student in payload.students:
             db_candidate = Candidate(
                 name=student.name,
                 email=student.email,
                 phone=student.phone,
-                course_program=payload.course_program,
-                course_id=resolved_course_id,        # ✅ Now in scope
+
+                # Save both values
+                course_program=course_master_row.course_code,
+                course_id=course_master_row.course_id,
+
                 department_branch=student.department_branch,
-                year=student.year  
+                year=student.year
             )
+
             db.add(db_candidate)
+
+            db.flush()
+
+            print(
+                "After flush:",
+                db_candidate.course_program,
+                db_candidate.course_id
+            )
             inserted_count += 1
 
         db.commit()
+
         print(f"🎉 Successfully persisted {inserted_count} student records.")
-        return {"success": True, "inserted_count": inserted_count}
+
+        return {
+            "success": True,
+            "inserted_count": inserted_count,
+            "course_id": course_master_row.course_id,
+            "course_code": course_master_row.course_code
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except ValueError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid course id received from frontend."
+        )
 
     except Exception as e:
         db.rollback()
         print(f"❌ Critical Database Write Anomaly: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database write failure: {str(e)}")
-    
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database write failure: {str(e)}"
+        )
 
 @app.get("/api/panels/{panel_id}/members")
 def get_panel_members(
