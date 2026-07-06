@@ -4,7 +4,7 @@ import shutil
 import time
 import traceback
 
-import deepface
+# import deepface
 from dotenv import load_dotenv
 import os
 
@@ -30,7 +30,7 @@ from sqlalchemy.orm import Query, Session
 
 import cv2
 import numpy as np
-import mediapipe as mp
+# import mediapipe as mp
 import uuid
 import random
 import json
@@ -102,7 +102,7 @@ app.include_router(memberdashboard_router)
 app.include_router(auth_router)
 # app.include_router(course_route)
 
-mp_face_detection = mp.solutions.face_detection
+# mp_face_detection = mp.solutions.face_detection
 
 # ---------------- OPENAI CLIENT ----------------
 api_key = os.getenv("OPENAI_API_KEY")
@@ -330,32 +330,32 @@ Return ONLY the corrected sentence.
            
 
 # ---------------- FACE DETECTION ----------------
-@app.post("/detect-face")
-async def detect_face(file: UploadFile = File(...)):
+# @app.post("/detect-face")
+# async def detect_face(file: UploadFile = File(...)):
 
-    contents = await file.read()
-    np_arr = np.frombuffer(contents, np.uint8)
-    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+#     contents = await file.read()
+#     np_arr = np.frombuffer(contents, np.uint8)
+#     image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-    if image is None:
-        return {"faces": 0}
+#     if image is None:
+#         return {"faces": 0}
 
-    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    with mp_face_detection.FaceDetection(
-        model_selection=0,
-        min_detection_confidence=0.5
-    ) as fd:
-        results = fd.process(rgb)
+#     with mp_face_detection.FaceDetection(
+#         model_selection=0,
+#         min_detection_confidence=0.5
+#     ) as fd:
+#         results = fd.process(rgb)
 
-    faces = len(results.detections) if results.detections else 0
+#     faces = len(results.detections) if results.detections else 0
 
-    return {"faces": faces}
+#     return {"faces": faces}
 
 app.include_router(auth.router, prefix="/api/auth")
 
 
-mp_face_detection = mp.solutions.face_detection
+# mp_face_detection = mp.solutions.face_detection
 
 # ============================================
 # PYDANTIC MODELS
@@ -2717,66 +2717,66 @@ async def schedule_interview(
         )
     
 
-@app.post("/analyze-video")
-async def analyze_video(file: UploadFile = File(...)):
+# @app.post("/analyze-video")
+# async def analyze_video(file: UploadFile = File(...)):
 
-    original_name = file.filename or f"video_{uuid.uuid4()}.mp4"
-    file_path = os.path.join(RECORDING_BASE_PATH, original_name)
+#     original_name = file.filename or f"video_{uuid.uuid4()}.mp4"
+#     file_path = os.path.join(RECORDING_BASE_PATH, original_name)
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+#     with open(file_path, "wb") as buffer:
+#         shutil.copyfileobj(file.file, buffer)
 
-    cap = cv2.VideoCapture(file_path)
-    if not cap.isOpened():
-        os.remove(file_path)
-        return {"error": "Could not open video file"}
+#     cap = cv2.VideoCapture(file_path)
+#     if not cap.isOpened():
+#         os.remove(file_path)
+#         return {"error": "Could not open video file"}
 
-    emotion_counts = {
-        "happy": 0, "neutral": 0, "sad": 0,
-        "angry": 0, "fear": 0, "disgust": 0, "surprise": 0
-    }
-    frame_count = 0
-    total_analyzed = 0
+#     emotion_counts = {
+#         "happy": 0, "neutral": 0, "sad": 0,
+#         "angry": 0, "fear": 0, "disgust": 0, "surprise": 0
+#     }
+#     frame_count = 0
+#     total_analyzed = 0
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frame_count += 1
-        if frame_count % 30 == 0:
-            try:
-                result = deepface.analyze(
-                    frame,
-                    actions=['emotion'],
-                    enforce_detection=False
-                )
-                emotion = result[0]["dominant_emotion"]
-                if emotion in emotion_counts:
-                    emotion_counts[emotion] += 1
-                total_analyzed += 1
-            except:
-                pass
+#     while cap.isOpened():
+#         ret, frame = cap.read()
+#         if not ret:
+#             break
+#         frame_count += 1
+#         if frame_count % 30 == 0:
+#             try:
+#                 result = deepface.analyze(
+#                     frame,
+#                     actions=['emotion'],
+#                     enforce_detection=False
+#                 )
+#                 emotion = result[0]["dominant_emotion"]
+#                 if emotion in emotion_counts:
+#                     emotion_counts[emotion] += 1
+#                 total_analyzed += 1
+#             except:
+#                 pass
 
-    cap.release()
+#     cap.release()
 
-    if os.path.exists(file_path):
-        os.remove(file_path)
+#     if os.path.exists(file_path):
+#         os.remove(file_path)
 
-    dominant = max(emotion_counts, key=emotion_counts.get) if total_analyzed > 0 else "neutral"
+#     dominant = max(emotion_counts, key=emotion_counts.get) if total_analyzed > 0 else "neutral"
 
-    return {
-        "video": original_name,
-        "dominant_emotion": dominant,
-        "total_analyzed_frames": total_analyzed,
-        "happy_frames": emotion_counts["happy"],
-        "neutral_frames": emotion_counts["neutral"],
-        "sad_frames": emotion_counts["sad"],
-        "angry_frames": emotion_counts["angry"],
+#     return {
+#         "video": original_name,
+#         "dominant_emotion": dominant,
+#         "total_analyzed_frames": total_analyzed,
+#         "happy_frames": emotion_counts["happy"],
+#         "neutral_frames": emotion_counts["neutral"],
+#         "sad_frames": emotion_counts["sad"],
+#         "angry_frames": emotion_counts["angry"],
 		
-        "fear_frames": emotion_counts["fear"],
-        "disgust_frames": emotion_counts["disgust"],
-        "surprise_frames": emotion_counts["surprise"]
-    }
+#         "fear_frames": emotion_counts["fear"],
+#         "disgust_frames": emotion_counts["disgust"],
+#         "surprise_frames": emotion_counts["surprise"]
+#     }
 
 @app.get("/health")
 def health():
