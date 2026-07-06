@@ -1,4 +1,5 @@
 # 🔥 LOAD ENV FIRST (VERY IMPORTANT)
+import re
 import shutil
 import time
 import traceback
@@ -3506,3 +3507,120 @@ async def save_global_questions(
             "success": False,
             "error": str(e)
         }
+    
+class SelfAssessmentRequest(BaseModel):
+    course_id: int
+
+@app.post("/api/self-assessment/generate-questions")
+def generate_self_assessment_questions(
+    payload: SelfAssessmentRequest,
+    db: Session = Depends(get_db)
+):
+
+    # ----------------------------------------------------
+    # Fetch Course Details
+    # ----------------------------------------------------
+    course = (
+        db.query(CourseMaster)
+        .filter(CourseMaster.course_id == payload.course_id)
+        .first()
+    )
+
+    if not course:
+        raise HTTPException(
+            status_code=404,
+            detail="Course not found."
+        )
+
+    course_name = course.course_name
+    branch_name = course.branch_name or ""
+
+    print(f"📘 Course : {course_name}")
+    print(f"🌿 Branch : {branch_name}")
+
+    # ----------------------------------------------------
+    # Prompt
+    # ----------------------------------------------------
+    prompt = f"""
+You are an experienced technical interviewer.
+
+Generate EXACTLY 10 interview questions for a self-assessment technical interview.
+
+Course:
+{course_name}
+
+Branch:
+{branch_name}
+
+Rules:
+
+- Questions must be suitable for a spoken AI interview.
+- Mix beginner, intermediate, and advanced difficulty levels.
+- Questions should be answerable within approximately 50 seconds.
+- Include both conceptual and practical interview questions.
+- Avoid coding/program-writing questions.
+- Avoid duplicate or very similar questions.
+- Ensure the questions are relevant to both the selected course and branch.
+- For every question, generate an expected answer that represents what an ideal candidate should answer.
+- The expected answer should be technically accurate, concise, and approximately 80-150 words.
+- The expected answer should cover the important concepts an interviewer would expect.
+- Do not include numbering, headings, explanations, or markdown.
+- Return ONLY valid JSON.
+
+Return format:
+
+[
+    {{
+        "question": "Question 1",
+        "expected_answer": "Expected answer for Question 1."
+    }},
+    {{
+        "question": "Question 2",
+        "expected_answer": "Expected answer for Question 2."
+    }},
+    {{
+        "question": "Question 3",
+        "expected_answer": "Expected answer for Question 3."
+    }}
+]
+"""
+
+    try:
+
+        response = genai_client.models.generate_content(
+            model=PRIMARY_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            )
+        )
+
+        text = response.text.strip()
+
+        # Gemini sometimes wraps JSON in markdown
+        text = re.sub(r"```json", "", text)
+        text = re.sub(r"```", "", text).strip()
+
+        questions = json.loads(text)
+
+        if not isinstance(questions, list):
+            raise Exception("Gemini returned an invalid JSON array.")
+
+        return {
+            "success": True,
+            "course_id": course.course_id,
+            "course_name": course.course_name,
+            "branch_name": course.branch_name,
+            "total_questions": len(questions),
+            "questions": questions
+        }
+
+    except Exception as e:
+
+        print(f"❌ Gemini Question Generation Failed: {str(e)}")
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate interview questions. {str(e)}"
+        )
+    
