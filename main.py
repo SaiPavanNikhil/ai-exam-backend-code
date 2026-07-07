@@ -1512,7 +1512,8 @@ async def submit_self_assessment_answer(
     background_tasks: BackgroundTasks,
     candidate_id: int = Form(...),
     assessment_id: str = Form(...),
-    question_id: int = Form(...),
+    question_text: str = Form(...),
+    expected_answer: str = Form(...),
     answer_text: str = Form(...),
     course: str = Form(...),
     db: Session = Depends(get_db)
@@ -1521,7 +1522,8 @@ async def submit_self_assessment_answer(
     new_answer = SelfAssessmentAnswer(
         candidate_id=candidate_id,
         assessment_id=assessment_id,
-        question_id=question_id,
+        question_text=question_text,
+        expected_answer=expected_answer,
         answer_text=answer_text,
         course=course,
         ai_response="Processing...",
@@ -1536,7 +1538,8 @@ async def submit_self_assessment_answer(
     background_tasks.add_task(
         grade_self_assessment_answer,
         new_answer.id,
-        question_id,
+        question_text,
+        expected_answer,
         answer_text
     )
 
@@ -1550,7 +1553,8 @@ async def submit_self_assessment_answer(
 
 async def grade_self_assessment_answer(
     answer_id: int,
-    question_id: int,
+    question_text: str,
+    expected_answer: str,
     candidate_answer: str
 ):
 
@@ -1558,45 +1562,33 @@ async def grade_self_assessment_answer(
 
     try:
 
-        question = db.query(Question)\
-            .filter(Question.id == question_id)\
-            .first()
-
-        if not question:
-            print(
-                f"❓ Question ID {question_id} not found."
-            )
-            return
-
-        expected = (
-            question.expected_answer
-            or "No reference answer available."
-        )
-
         prompt = f"""
-        You are a seasoned technical interviewer grading a candidate's answer.
+You are a seasoned technical interviewer grading a candidate's answer.
 
-        QUESTION:
-        {question.question_text}
+QUESTION:
+{question_text}
 
-        EXPECTED ANSWER:
-        {expected}
+EXPECTED ANSWER:
+{expected_answer}
 
-        CANDIDATE ANSWER:
-        {candidate_answer}
+CANDIDATE ANSWER:
+{candidate_answer}
 
-        Instructions:
-        - Evaluate concept understanding.
-        - Do not require exact wording.
-        - Give a score from 0 to 10.
-        - Give detailed feedback.
+Evaluation Guidelines:
 
-        Return JSON:
-        {{
-          "score": 8,
-          "feedback": "Good answer..."
-        }}
-        """
+- Evaluate the candidate based on concept understanding rather than exact wording.
+- Accept alternative technically correct explanations.
+- Check whether the important concepts from the expected answer are covered.
+- Assign an integer score between 0 and 10.
+- Provide clear and constructive feedback.
+
+Return ONLY valid JSON in the following format:
+
+{{
+    "score": 8,
+    "feedback": "Good understanding of the topic. The candidate covered the major concepts but could improve by explaining..."
+}}
+"""
 
         response = genai_client.models.generate_content(
             model=PRIMARY_MODEL,
@@ -1609,9 +1601,7 @@ async def grade_self_assessment_answer(
 
         result = json.loads(response.text)
 
-        final_score = int(
-            result.get("score", 0)
-        )
+        final_score = int(result.get("score", 0))
 
         final_feedback = result.get(
             "feedback",
@@ -1691,7 +1681,6 @@ async def grade_self_assessment_answer(
     finally:
         db.close()
 
-
 @app.post("/api/self-assessment/generate-final-result/{assessment_id}")
 async def generate_final_self_assessment_result(
     assessment_id: str,
@@ -1727,8 +1716,23 @@ async def generate_final_self_assessment_result(
         2
     ) if maximum_marks > 0 else 0
 
-    feedback_text = "\n".join([
-        a.ai_response or ""
+    evaluation_details = "\n\n".join([
+        f"""
+    Question:
+    {a.question_text}
+
+    Expected Answer:
+    {a.expected_answer}
+
+    Candidate Answer:
+    {a.answer_text}
+
+    AI Score:
+    {a.ai_score or 0}/10
+
+    AI Feedback:
+    {a.ai_response or "No feedback available."}
+    """
         for a in answers
     ])
 
@@ -1747,11 +1751,11 @@ async def generate_final_self_assessment_result(
 
         Percentage: {percentage}%
 
-        Individual Feedback:
+        Question-wise Evaluation:
 
-        {feedback_text}
+        {evaluation_details}
 
-        Return ONLY JSON.
+        Based on the overall interview performance, return ONLY valid JSON.
 
         Required JSON Structure:
 
@@ -3445,6 +3449,7 @@ async def save_global_questions(
 
         course_code_to_enum = {
             "BTCS": CourseProgram.B_TECH,
+            "BTEC": CourseProgram.B_TECH,
             "BBA": CourseProgram.BBA,
             "MBA": CourseProgram.MBA,
             "MCA": CourseProgram.MCA,
