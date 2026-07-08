@@ -11,11 +11,13 @@ import os
 from sqlalchemy import func
 import websocket
 
+from models.InterviewVideoAnalysis import InterviewVideoAnalysis
 from models.PanelCandidate import PanelCandidate
 from models.course_master import CourseMaster
 from models.SelfAssessmentResult import SelfAssessmentResult
 from models.SelfAssessmentAnswer import SelfAssessmentAnswer
 from schemas import save_answer_request
+from schemas.VideoAnalysisRequest import VideoAnalysisRequest
 from schemas.grading_schema import GradingSchema, FinalAssessmentSchema
 from schemas.schedule_interview_request import ScheduleInterviewRequest
 from models.subject_master import SubjectMaster
@@ -3629,3 +3631,52 @@ Return format:
             detail=f"Failed to generate interview questions. {str(e)}"
         )
     
+@app.post("/api/interviews/save-video-analysis")
+def save_video_analysis(
+    request: VideoAnalysisRequest,
+    db: Session = Depends(get_db)
+):
+
+    analysis = request.analysis
+
+    record = InterviewVideoAnalysis(
+
+        interview_id=request.interview_id,
+
+        candidate_id=request.candidate_id,
+
+        interview_mode=request.interview_mode,
+
+        video=analysis.get("video"),
+
+        dominant_emotion=analysis.get("dominant_emotion"),
+
+        total_analyzed_frames=analysis.get("total_analyzed_frames"),
+
+        happy_frames=analysis.get("happy_frames"),
+
+        neutral_frames=analysis.get("neutral_frames"),
+
+        sad_frames=analysis.get("sad_frames"),
+
+        angry_frames=analysis.get("angry_frames"),
+
+        fear_frames=analysis.get("fear_frames"),
+
+        disgust_frames=analysis.get("disgust_frames"),
+
+        surprise_frames=analysis.get("surprise_frames")
+
+    )
+
+    db.add(record)
+
+    db.commit()
+
+    db.refresh(record)
+
+    return {
+        "success": True,
+        "message": "Video analysis saved successfully.",
+        "id": record.id
+    }

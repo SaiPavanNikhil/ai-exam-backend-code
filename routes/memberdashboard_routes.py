@@ -99,43 +99,153 @@ def get_interviews(user_id: int, db: Session = Depends(get_db)):
 
 
 
+# @router.get("/interviews/formatted/{user_id}")
+# def get_formatted_interviews(user_id: int, db: Session = Depends(get_db)):
+
+#     query = text("""
+#         SELECT  c.name,
+#             i.interview_id,
+#             i.interview_category,
+#             i.panel_id,
+#             pc.candidate_id,
+#             i.status,
+#             TO_CHAR(i.scheduled_at::timestamp, 'DD Mon YYYY HH12:MI AM') AS scheduled_at,
+#             pm.role  
+#         FROM public.interviews i 
+#         JOIN public.panel_members pm ON i.panel_id = pm.panel_id
+# 		Left Join panel_candidates pc on i.panel_id = pc.panel_id and i.interview_id = pc.interview_id
+#         JOIN public.candidates c ON c.id = pc.candidate_id
+#         WHERE pm.user_id = :user_id
+#     """)
+
+#     result = db.execute(query, {"user_id": user_id})
+
+#     data = []
+#     for row in result:
+#         data.append({
+#              "candidate_name": row.name,
+#             "interview_id": row.interview_id,
+#             "interview_category": row.interview_category,
+#             "candidate_id": row.candidate_id,
+#             "panel_id": row.panel_id,
+#             "status": row.status,
+#             "scheduled_at": row.scheduled_at,  # ✅ already formatted
+#             "role": row.role
+#         })
+
+#     return data
 @router.get("/interviews/formatted/{user_id}")
-def get_formatted_interviews(user_id: int, db: Session = Depends(get_db)):
+def get_formatted_interviews(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
 
     query = text("""
-        SELECT  c.name,
-            i.interview_id,
-            i.interview_category,
-            i.panel_id,
-            pc.candidate_id,
-            i.status,
-            TO_CHAR(i.scheduled_at::timestamp, 'DD Mon YYYY HH12:MI AM') AS scheduled_at,
-            pm.role  
-        FROM public.interviews i 
-        JOIN public.panel_members pm ON i.panel_id = pm.panel_id
-		Left Join panel_candidates pc on i.panel_id = pc.panel_id and i.interview_id = pc.interview_id
-        JOIN public.candidates c ON c.id = pc.candidate_id
-        WHERE pm.user_id = :user_id
+        SELECT DISTINCT
+
+    i.interview_id,
+    i.interview_category,
+    i.panel_id,
+    i.status,
+
+    i.scheduled_at,
+
+    TO_CHAR(
+        i.scheduled_at::timestamp,
+        'DD Mon YYYY HH12:MI AM'
+    ) AS scheduled_at_display,
+
+    pm.role
+
+FROM interviews i
+
+JOIN panel_members pm
+    ON pm.panel_id = i.panel_id
+
+WHERE pm.user_id = :user_id
+
+ORDER BY i.scheduled_at DESC;
     """)
 
-    result = db.execute(query, {"user_id": user_id})
+    result = db.execute(
+        query,
+        {"user_id": user_id}
+    )
 
     data = []
+
     for row in result:
+
         data.append({
-             "candidate_name": row.name,
             "interview_id": row.interview_id,
             "interview_category": row.interview_category,
-            "candidate_id": row.candidate_id,
             "panel_id": row.panel_id,
             "status": row.status,
-            "scheduled_at": row.scheduled_at,  # ✅ already formatted
+            "scheduled_at": row.scheduled_at_display,
             "role": row.role
         })
 
     return data
 
 
+@router.get("/interviews/candidates/{interview_id}")
+def get_interview_candidates(
+    interview_id: str,
+    db: Session = Depends(get_db)
+):
+
+    query = text("""
+        SELECT
+
+            c.id AS candidate_id,
+            c.name AS candidate_name,
+            c.email,
+            c.phone,
+            pc.panel_id,
+            i.interview_category
+
+        FROM panel_candidates pc
+
+        JOIN candidates c
+             ON c.id = pc.candidate_id
+
+        JOIN interviews i
+             ON i.interview_id = pc.interview_id
+            AND i.panel_id = pc.panel_id
+
+        WHERE pc.interview_id = :interview_id
+
+        ORDER BY c.name
+
+    """)
+
+    result = db.execute(
+        query,
+        {
+            "interview_id": interview_id
+        }
+    )
+
+    candidates = []
+
+    for row in result:
+
+        candidates.append({
+
+            "candidate_id": row.candidate_id,
+            "candidate_name": row.candidate_name,
+            "email": row.email,
+            "mobile": row.phone,
+            "panel_id": row.panel_id,
+            "interview_category": row.interview_category
+
+        })
+
+    return {
+        "success": True,
+        "interview_id": interview_id,
+        "candidates": candidates
+    }
 
 
 @router.get("/member/interviews/{user_id}/{candidate_id}")
@@ -343,10 +453,11 @@ def get_candidate(candidate_id: int, db: Session = Depends(get_db)):
 #         ]
 #     }
 
-@router.get("/qa-evaluation-log/{candidate_id}/{member_id}")
+@router.get("/qa-evaluation-log/{candidate_id}/{member_id}/{interview_id}")
 def get_candidate_questionAndAnswer(
     candidate_id: int,
     member_id: int,
+    interview_id: str,
     db: Session = Depends(get_db)
 ):
 
@@ -386,6 +497,7 @@ def get_candidate_questionAndAnswer(
 
         WHERE pc.candidate_id = :candidate_id
           AND pm.user_id = :member_id
+          AND pc.interview_id = :interview_id
 
         ORDER BY q.id;
     """)
@@ -394,7 +506,8 @@ def get_candidate_questionAndAnswer(
         query,
         {
             "candidate_id": candidate_id,
-            "member_id": member_id
+            "member_id": member_id,
+            "interview_id": interview_id
         }
     ).mappings().all()
 
@@ -404,6 +517,7 @@ def get_candidate_questionAndAnswer(
     return {
         "candidateId": candidate_id,
         "memberId": member_id,
+        "interviewId": interview_id,
         "qaList": [
             {
                 "question_id": row["question_id"],
@@ -417,7 +531,6 @@ def get_candidate_questionAndAnswer(
             for row in results
         ]
     }
-
 
 # @router.post("/final-evaluation")
 # def save_final_evaluation(data: dict, db: Session = Depends(get_db)):
@@ -551,8 +664,12 @@ def save_final_evaluation(data: dict, db: Session = Depends(get_db)):
 # 🚀 API endpoint
 
 # ✅ FINAL: Panel Members with Done/Pending Status
-@router.get("/panel-members/{panel_id}")
-def get_panel_members(panel_id: int, db: Session = Depends(get_db)):
+@router.get("/panel-members/{panel_id}/{interview_id}")
+def get_panel_members(
+    panel_id: int,
+    interview_id: str,
+    db: Session = Depends(get_db)
+):
 
     query = text("""
         SELECT
@@ -596,6 +713,7 @@ def get_panel_members(panel_id: int, db: Session = Depends(get_db)):
            AND fe.memberid = p.user_id
 
         WHERE i.panel_id = :panel_id
+          AND i.interview_id = :interview_id
 
         ORDER BY
             pc.candidate_id,
@@ -606,7 +724,13 @@ def get_panel_members(panel_id: int, db: Session = Depends(get_db)):
             u.name;
     """)
 
-    result = db.execute(query, {"panel_id": panel_id})
+    result = db.execute(
+        query,
+        {
+            "panel_id": panel_id,
+            "interview_id": interview_id
+        }
+    )
 
     return [
         {
@@ -621,7 +745,6 @@ def get_panel_members(panel_id: int, db: Session = Depends(get_db)):
         }
         for row in result
     ]
-
 
 
 
