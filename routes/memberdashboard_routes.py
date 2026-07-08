@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from sqlalchemy import text
@@ -954,4 +954,56 @@ def get_final_remark(
         "candidate_id": candidate_id,
         "member_id": member_id,
         "remark": remarks   # list
+    }
+
+@router.get("/api/interviews/video-analysis/{interview_id}/{candidate_id}")
+def get_video_analysis(
+    interview_id: str,
+    candidate_id: int,
+    db: Session = Depends(get_db)
+):
+
+    query = text("""
+        SELECT
+            video,
+            dominant_emotion,
+            total_analyzed_frames,
+            happy_frames,
+            neutral_frames,
+            sad_frames,
+            angry_frames,
+            fear_frames,
+            disgust_frames,
+            surprise_frames
+        FROM interview_video_analysis
+        WHERE interview_id = :interview_id
+          AND candidate_id = :candidate_id
+        LIMIT 1
+    """)
+
+    result = db.execute(
+        query,
+        {
+            "interview_id": interview_id,
+            "candidate_id": candidate_id
+        }
+    ).fetchone()
+
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail="Video analysis not found."
+        )
+
+    return {
+        "video": result.video,
+        "dominant_emotion": result.dominant_emotion,
+        "total_analyzed_frames": result.total_analyzed_frames,
+        "happy_frames": result.happy_frames,
+        "neutral_frames": result.neutral_frames,
+        "sad_frames": result.sad_frames,
+        "angry_frames": result.angry_frames,
+        "fear_frames": result.fear_frames,
+        "disgust_frames": result.disgust_frames,
+        "surprise_frames": result.surprise_frames
     }
