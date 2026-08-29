@@ -27,7 +27,7 @@ tensorflow==2.21.0
 
 # ---------------- COMPUTER VISION ----------------
 opencv-contrib-python==4.8.1.78
-numpy==2.2.6
+numpy==1.26.4
 scipy==1.15.3
 Pillow==12.3.0
 av==17.1.0

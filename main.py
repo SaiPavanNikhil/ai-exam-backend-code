@@ -77,7 +77,7 @@ os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "60"
 
 # 🔥 Recording path
 # RECORDING_BASE_PATH = "C:/Users/saipa/OneDrive/Desktop/Recordings"
-RECORDING_BASE_PATH = os.getenv("RECORDING_BASE_PATH", "/tmp/recordings")
+RECORDING_BASE_PATH = os.getenv("RECORDING_BASE_PATH", "/data/recording")
 os.makedirs(RECORDING_BASE_PATH, exist_ok=True)
 
 app.mount(
