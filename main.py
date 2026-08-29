@@ -1511,12 +1511,53 @@ async def get_self_assessment_questions(
     }
 
 
+# @app.post("/api/self-assessment/submit-answer")
+# async def submit_self_assessment_answer(
+#     background_tasks: BackgroundTasks,
+#     candidate_id: int = Form(...),
+#     assessment_id: str = Form(...),
+#     question_id: int = Form(...),
+#     answer_text: str = Form(...),
+#     course: str = Form(...),
+#     db: Session = Depends(get_db)
+# ):
+
+#     new_answer = SelfAssessmentAnswer(
+#         candidate_id=candidate_id,
+#         assessment_id=assessment_id,
+#         question_id=question_id,
+#         answer_text=answer_text,
+#         course=course,
+#         ai_response="Processing...",
+#         status="Processing"
+#     )
+
+#     db.add(new_answer)
+#     db.commit()
+#     db.refresh(new_answer)
+
+#     # Trigger AI grading in background
+#     background_tasks.add_task(
+#         grade_self_assessment_answer,
+#         new_answer.id,
+#         question_id,
+#         answer_text
+#     )
+
+#     return {
+#         "success": True,
+#         "message": "Answer received successfully.",
+#         "answer_id": new_answer.id,
+#         "assessment_id": assessment_id
+#     }
+
 @app.post("/api/self-assessment/submit-answer")
 async def submit_self_assessment_answer(
     background_tasks: BackgroundTasks,
     candidate_id: int = Form(...),
     assessment_id: str = Form(...),
-    question_id: int = Form(...),
+    question_text: str = Form(...),
+    expected_answer: str = Form(...),
     answer_text: str = Form(...),
     course: str = Form(...),
     db: Session = Depends(get_db)
@@ -1525,7 +1566,8 @@ async def submit_self_assessment_answer(
     new_answer = SelfAssessmentAnswer(
         candidate_id=candidate_id,
         assessment_id=assessment_id,
-        question_id=question_id,
+        question_text=question_text,
+        expected_answer=expected_answer,
         answer_text=answer_text,
         course=course,
         ai_response="Processing...",
@@ -1540,7 +1582,8 @@ async def submit_self_assessment_answer(
     background_tasks.add_task(
         grade_self_assessment_answer,
         new_answer.id,
-        question_id,
+        question_text,
+        expected_answer,
         answer_text
     )
 
