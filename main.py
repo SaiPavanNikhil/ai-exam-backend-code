@@ -30,7 +30,7 @@ from sqlalchemy.orm import Query, Session
 
 import cv2
 import numpy as np
-import mediapipe as mp
+# import mediapipe as mp
 import uuid
 import random
 import json
@@ -106,7 +106,7 @@ app.include_router(jd_route)
 app.include_router(jd_schedule_router)
 # app.include_router(course_route)
 
-mp_face_detection = mp.solutions.face_detection
+# mp_face_detection = mp.solutions.face_detection
 
 # ---------------- OPENAI CLIENT ----------------
 api_key = os.getenv("OPENAI_API_KEY")
@@ -334,32 +334,32 @@ def get_next_question(interview_id: str, category: str, db: Session = Depends(ge
            
 
 # ---------------- FACE DETECTION ----------------
-@app.post("/detect-face")
-async def detect_face(file: UploadFile = File(...)):
+# @app.post("/detect-face")
+# async def detect_face(file: UploadFile = File(...)):
 
-    contents = await file.read()
-    np_arr = np.frombuffer(contents, np.uint8)
-    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+#     contents = await file.read()
+#     np_arr = np.frombuffer(contents, np.uint8)
+#     image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-    if image is None:
-        return {"faces": 0}
+#     if image is None:
+#         return {"faces": 0}
 
-    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    with mp_face_detection.FaceDetection(
-        model_selection=0,
-        min_detection_confidence=0.5
-    ) as fd:
-        results = fd.process(rgb)
+#     with mp_face_detection.FaceDetection(
+#         model_selection=0,
+#         min_detection_confidence=0.5
+#     ) as fd:
+#         results = fd.process(rgb)
 
-    faces = len(results.detections) if results.detections else 0
+#     faces = len(results.detections) if results.detections else 0
 
-    return {"faces": faces}
+#     return {"faces": faces}
 
 app.include_router(auth.router, prefix="/api/auth")
 
 
-mp_face_detection = mp.solutions.face_detection
+# mp_face_detection = mp.solutions.face_detection
 
 # ============================================
 # PYDANTIC MODELS
