@@ -9,7 +9,7 @@ class SelfAssessmentAnswer(Base):
 
     candidate_id = Column(Integer, nullable=False)
 
-    question_id = Column(Integer, nullable=False)
+    # question_id = Column(Integer, nullable=False)
 
     started_at = Column(
         DateTime,
@@ -34,3 +34,7 @@ class SelfAssessmentAnswer(Base):
     )
 
     course = Column(String(100), nullable=True)
+
+    question_text = Column(Text, nullable=False)
+
+    expected_answer = Column(Text, nullable=True)
