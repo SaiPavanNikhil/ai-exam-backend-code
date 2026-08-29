@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+env/
+.venv/
+
+# Environment Variables
+.env
+
+# VS Code
+.vscode/
+
+# Audio & Video Files
+*.wav
+*.mp3
+*.webm
+*.mp4
+
+# Uploads & Recordings
+uploads/
+recorded_audio_*
+
+# Test Files (DO NOT DEPLOY)
+deepgram_test.py
+face_detection.py
+assembly.py
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# Railway / Docker
+*.dockerignore
+
+# OS Files
+.DS_Store
+Thumbs.db
