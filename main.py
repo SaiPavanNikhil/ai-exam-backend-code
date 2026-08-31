@@ -1500,6 +1500,8 @@ async def get_self_assessment_questions(
 
                 "difficulty": q.difficulty,
 
+                "expected_answer": q.expected_answer,
+
                 "category": q.category
 
             }
@@ -1563,129 +1565,319 @@ async def submit_self_assessment_answer(
     db: Session = Depends(get_db)
 ):
 
-    new_answer = SelfAssessmentAnswer(
-        candidate_id=candidate_id,
-        assessment_id=assessment_id,
-        question_text=question_text,
-        expected_answer=expected_answer,
-        answer_text=answer_text,
-        course=course,
-        ai_response="Processing...",
-        status="Processing"
-    )
+    try:
 
-    db.add(new_answer)
-    db.commit()
-    db.refresh(new_answer)
+        # --------------------------------------------------------
+        # SAVE CANDIDATE ANSWER
+        # --------------------------------------------------------
 
-    # Trigger AI grading in background
-    background_tasks.add_task(
-        grade_self_assessment_answer,
-        new_answer.id,
-        question_text,
-        expected_answer,
-        answer_text
-    )
+        new_answer = SelfAssessmentAnswer(
+            candidate_id=candidate_id,
+            assessment_id=assessment_id,
+            question_text=question_text,
+            expected_answer=expected_answer,
+            answer_text=answer_text,
+            course=course,
+            ai_response="Processing...",
+            status="Processing"
+        )
 
-    return {
-        "success": True,
-        "message": "Answer received successfully.",
-        "answer_id": new_answer.id,
-        "assessment_id": assessment_id
-    }
+        db.add(new_answer)
+        db.commit()
+        db.refresh(new_answer)
+
+        print(
+            f"📝 Self Assessment Answer Saved | "
+            f"Answer ID: {new_answer.id}"
+        )
+
+        # --------------------------------------------------------
+        # START AI GRADING
+        # --------------------------------------------------------
+
+        background_tasks.add_task(
+            grade_self_assessment_answer,
+            new_answer.id,
+            question_text,
+            expected_answer,
+            answer_text
+        )
+
+        print(
+            f"🤖 AI Grading Task Started | "
+            f"Answer ID: {new_answer.id}"
+        )
+
+        return {
+            "success": True,
+            "message": "Answer received successfully.",
+            "answer_id": new_answer.id,
+            "assessment_id": assessment_id
+        }
+
+    except Exception as e:
+
+        db.rollback()
+
+        print(
+            f"❌ Failed to save self-assessment answer: {str(e)}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save answer: {str(e)}"
+        )
 
 
 async def grade_self_assessment_answer(
     answer_id: int,
-    question_id: int,
+    question_text: str,
+    expected_answer: str,
     candidate_answer: str
 ):
+    """
+    Grade a self-assessment answer using Gemini.
+
+    Tries multiple Gemini models in order.
+    If one model fails, the next model is attempted.
+    """
 
     db = SessionLocal()
 
+    # ------------------------------------------------------------
+    # GEMINI MODEL FALLBACK LIST
+    # ------------------------------------------------------------
+
+    models_to_try = [
+        "gemini-3-flash-preview",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+    ]
+
     try:
 
-        question = db.query(Question)\
-            .filter(Question.id == question_id)\
-            .first()
+        # --------------------------------------------------------
+        # VALIDATE INPUT
+        # --------------------------------------------------------
 
-        if not question:
-            print(
-                f"❓ Question ID {question_id} not found."
-            )
-            return
+        if not candidate_answer or not candidate_answer.strip():
 
-        expected = (
-            question.expected_answer
-            or "No reference answer available."
-        )
-
-        prompt = f"""
-        You are a seasoned technical interviewer grading a candidate's answer.
-
-        QUESTION:
-        {question.question_text}
-
-        EXPECTED ANSWER:
-        {expected}
-
-        CANDIDATE ANSWER:
-        {candidate_answer}
-
-        Instructions:
-        - Evaluate concept understanding.
-        - Do not require exact wording.
-        - Give a score from 0 to 10.
-        - Give detailed feedback.
-
-        Return JSON:
-        {{
-          "score": 8,
-          "feedback": "Good answer..."
-        }}
-        """
-
-        response = genai_client.models.generate_content(
-            model=PRIMARY_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=GradingSchema
-            )
-        )
-
-        result = json.loads(response.text)
-
-        final_score = int(
-            result.get("score", 0)
-        )
-
-        final_feedback = result.get(
-            "feedback",
-            "Evaluation completed."
-        )
-
-        db.query(SelfAssessmentAnswer)\
-            .filter(
+            db.query(SelfAssessmentAnswer).filter(
                 SelfAssessmentAnswer.id == answer_id
-            )\
-            .update({
-
-                "ai_score": final_score,
-
-                "ai_response": final_feedback,
-
+            ).update({
+                "ai_score": 0,
+                "ai_response": "Candidate did not provide an answer.",
                 "status": "Completed"
-
             })
 
-        db.commit()
+            db.commit()
+
+            print(
+                f"⚠️ Empty answer | Answer ID: {answer_id}"
+            )
+
+            return
+
+        # --------------------------------------------------------
+        # BUILD PROMPT
+        # --------------------------------------------------------
+
+        prompt = f"""
+You are a seasoned technical interviewer evaluating a candidate's
+answer to a technical interview question.
+
+QUESTION:
+{question_text}
+
+EXPECTED ANSWER:
+{expected_answer}
+
+CANDIDATE ANSWER:
+{candidate_answer}
+
+Evaluate the candidate answer against the expected answer.
+
+IMPORTANT RULES:
+- Evaluate conceptual understanding.
+- Do not require exact wording.
+- Equivalent explanations should receive credit.
+- Do not penalize the candidate for using different terminology
+  if the underlying concept is correct.
+- Identify important missing concepts.
+- Give a fair score from 0 to 10.
+- Give concise but useful feedback.
+- Do not invent information that is not present in the candidate answer.
+
+SCORING GUIDELINES:
+
+0-2:
+The answer is completely incorrect, irrelevant, or demonstrates
+almost no understanding.
+
+3-4:
+The answer demonstrates limited understanding but contains
+significant mistakes or missing concepts.
+
+5-6:
+The answer demonstrates partial understanding and is mostly
+correct but misses some important concepts.
+
+7-8:
+The answer demonstrates good understanding and is substantially
+correct with only minor omissions or inaccuracies.
+
+9:
+The answer demonstrates very strong understanding with almost
+everything important covered.
+
+10:
+The answer is completely correct, clear, and demonstrates
+excellent conceptual understanding.
+
+Return ONLY valid JSON in this format:
+
+{{
+    "score": 8,
+    "feedback": "The candidate demonstrates good understanding..."
+}}
+"""
+
+        # --------------------------------------------------------
+        # TRY GEMINI MODELS ONE BY ONE
+        # --------------------------------------------------------
+
+        last_error = None
+
+        for model_name in models_to_try:
+
+            try:
+
+                print(
+                    f"🤖 Trying Gemini model: {model_name} | "
+                    f"Answer ID: {answer_id}"
+                )
+
+                response = genai_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=GradingSchema
+                    )
+                )
+
+                # ------------------------------------------------
+                # VALIDATE RESPONSE
+                # ------------------------------------------------
+
+                if not response or not response.text:
+
+                    raise Exception(
+                        f"{model_name} returned an empty response."
+                    )
+
+                print(
+                    f"✅ Gemini response received from {model_name}"
+                )
+
+                result = json.loads(response.text)
+
+                final_score = int(
+                    result.get("score", 0)
+                )
+
+                final_feedback = result.get(
+                    "feedback",
+                    "Evaluation completed."
+                )
+
+                # ------------------------------------------------
+                # SAFETY CHECK SCORE
+                # ------------------------------------------------
+
+                if final_score < 0:
+                    final_score = 0
+
+                if final_score > 10:
+                    final_score = 10
+
+                # ------------------------------------------------
+                # SAVE RESULT
+                # ------------------------------------------------
+
+                db.query(SelfAssessmentAnswer).filter(
+                    SelfAssessmentAnswer.id == answer_id
+                ).update({
+
+                    "ai_score": final_score,
+
+                    "ai_response": final_feedback,
+
+                    "status": "Completed"
+
+                })
+
+                db.commit()
+
+                print(
+                    f"✅ Self Assessment Graded Successfully | "
+                    f"Answer ID: {answer_id} | "
+                    f"Model: {model_name} | "
+                    f"Score: {final_score}"
+                )
+
+                # ------------------------------------------------
+                # IMPORTANT:
+                # Stop trying other models because this worked.
+                # ------------------------------------------------
+
+                return
+
+            except Exception as model_error:
+
+                last_error = model_error
+
+                print(
+                    f"❌ Gemini model failed: {model_name}"
+                )
+
+                print(
+                    f"   Error: {str(model_error)}"
+                )
+
+                # ------------------------------------------------
+                # Try next model
+                # ------------------------------------------------
+
+                continue
+
+        # --------------------------------------------------------
+        # ALL MODELS FAILED
+        # --------------------------------------------------------
+
+        error_message = str(last_error)
 
         print(
-            f"✅ Self Assessment Graded | "
-            f"Answer ID: {answer_id} | "
-            f"Score: {final_score}"
+            f"❌ ALL GEMINI MODELS FAILED | "
+            f"Answer ID: {answer_id}"
         )
+
+        db.query(SelfAssessmentAnswer).filter(
+            SelfAssessmentAnswer.id == answer_id
+        ).update({
+
+            "ai_score": 0,
+
+            "ai_response":
+                "AI evaluation could not be completed. "
+                f"All Gemini models failed. "
+                f"Last error: {error_message[:200]}",
+
+            "status": "Failed"
+
+        })
+
+        db.commit()
 
     except Exception as e:
 
@@ -1694,48 +1886,41 @@ async def grade_self_assessment_answer(
         error_message = str(e)
 
         print(
-            f"❌ Self Assessment Grading Error: {error_message}"
+            f"❌ Self Assessment Grading Error | "
+            f"Answer ID: {answer_id}"
         )
 
-        if (
-            "RESOURCE_EXHAUSTED" in error_message
-            or "429" in error_message
-            or "503" in error_message
-        ):
+        print(
+            f"Error: {error_message}"
+        )
 
-            db.query(SelfAssessmentAnswer)\
-                .filter(
-                    SelfAssessmentAnswer.id == answer_id
-                )\
-                .update({
+        try:
 
-                    "ai_score": 0,
+            db.query(SelfAssessmentAnswer).filter(
+                SelfAssessmentAnswer.id == answer_id
+            ).update({
 
-                    "ai_response":
-                        "AI evaluation temporarily unavailable due to quota limits.",
+                "ai_score": 0,
 
-                    "status": "Pending"
+                "ai_response":
+                    f"AI Evaluation Error: "
+                    f"{error_message[:200]}",
 
-                })
+                "status": "Failed"
 
-        else:
+            })
 
-            db.query(SelfAssessmentAnswer)\
-                .filter(
-                    SelfAssessmentAnswer.id == answer_id
-                )\
-                .update({
+            db.commit()
 
-                    "ai_response":
-                        f"AI Evaluation Error: {error_message[:100]}",
+        except Exception as db_error:
 
-                    "status": "Failed"
-
-                })
-
-        db.commit()
+            print(
+                f"❌ Failed to update grading error in database: "
+                f"{str(db_error)}"
+            )
 
     finally:
+
         db.close()
 
 
