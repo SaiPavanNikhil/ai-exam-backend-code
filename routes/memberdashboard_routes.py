@@ -456,7 +456,7 @@ def get_candidate_questionAndAnswer(
     db: Session = Depends(get_db),
 ):
     query = text("""
-        SELECT
+        SELECT DISTINCT
             a.id AS answer_id,
             pc.candidate_id,
             q.id AS question_id,
@@ -482,6 +482,7 @@ def get_candidate_questionAndAnswer(
             ON fe.memberid = pm.user_id
             AND fe.candidate_id = pc.candidate_id
             AND fe.question_id = q.id
+            and fe.interview_id=pc.interview_id
         WHERE pc.candidate_id = :candidate_id
         AND pm.user_id = :member_id
         AND pc.interview_id = :interview_id
@@ -565,9 +566,9 @@ def save_final_evaluation(data: dict, db: Session = Depends(get_db)):
         # =========================
         qa_query = text("""
             INSERT INTO public.final_evaluation
-            (candidate_id, memberid, question_id, score, remark, final_verdict, created_at)
+            (candidate_id, memberid, question_id, score, remark, final_verdict, created_at, interview_id)
             VALUES
-            (:candidate_id, :memberid, :question_id, :score, :remark, :final_verdict, NOW())
+            (:candidate_id, :memberid, :question_id, :score, :remark, :final_verdict, NOW(), :interview_id)
         """)
 
         for item in data["qaList"]:
@@ -580,6 +581,7 @@ def save_final_evaluation(data: dict, db: Session = Depends(get_db)):
                     "score": item["score"],
                     "remark": data["remark"],
                     "final_verdict": data["verdict"],
+                    "interview_id": data["interview_id"],
                 },
             )
 
@@ -597,7 +599,8 @@ def save_final_evaluation(data: dict, db: Session = Depends(get_db)):
                 overall_impression,
                 remark,
                 final_verdict,
-                created_at
+                created_at,
+                interview_id
             )
             VALUES (
                 :candidate_id,
@@ -609,7 +612,8 @@ def save_final_evaluation(data: dict, db: Session = Depends(get_db)):
                 :overall_impression,
                 :remark,
                 :final_verdict,
-                NOW()
+                NOW(),
+                :interview_id
             )
         """)
 
@@ -625,6 +629,7 @@ def save_final_evaluation(data: dict, db: Session = Depends(get_db)):
                 "overall_impression": data["overall_impression"],
                 "remark": data["remark"],
                 "final_verdict": data["verdict"],
+                "interview_id": data["interview_id"]
             },
         )
 
@@ -653,10 +658,11 @@ def save_final_evaluation(data: dict, db: Session = Depends(get_db)):
 # 🚀 API endpoint
 
 # ✅ FINAL: Panel Members with Done/Pending Status
-@router.get("/panel-members/{panel_id}/{interview_id}")
+@router.get("/panel-members/{panel_id}/{interview_id}/{candidate_id}")
 def get_panel_members(
     panel_id: int,
     interview_id: str,
+    candidate_id: int,
     db: Session = Depends(get_db),
 ):
     query = text("""
@@ -692,6 +698,7 @@ def get_panel_members(
             AND fe.memberid = p.user_id
         WHERE i.panel_id = :panel_id
         AND i.interview_id = :interview_id
+        and pc.candidate_id= :candidate_id
         ORDER BY
             pc.candidate_id,
             CASE
@@ -706,6 +713,7 @@ def get_panel_members(
         {
             "panel_id": panel_id,
             "interview_id": interview_id,
+            "candidate_id": candidate_id,
         },
     )
 
@@ -724,10 +732,11 @@ def get_panel_members(
     ]
 
 
-@router.get("/final-mark/{candidate_id}/{member_id}")
+@router.get("/final-mark/{candidate_id}/{member_id}/{interview_id}")
 def get_final_mark_verdict(
     candidate_id: int,
     member_id: int,
+    interview_id: str,
     db: Session = Depends(get_db),
 ):
     query = text("""
@@ -745,7 +754,7 @@ def get_final_mark_verdict(
             created_at
         FROM public.final_mark_verdict
         WHERE candidate_id = :candidate_id
-        AND memberid = :member_id
+        AND memberid = :member_id and interview_id= :interview_id
     """)
 
     result = db.execute(
@@ -753,6 +762,7 @@ def get_final_mark_verdict(
         {
             "candidate_id": candidate_id,
             "member_id": member_id,
+            "interview_id": interview_id
         },
     ).mappings().first()
 
@@ -774,9 +784,10 @@ def get_final_mark_verdict(
     }
 
 
-@router.get("/panel-question-scores/{panel_id}")
+@router.get("/panel-question-scores/{panel_id}/{interview_id}")
 def get_panel_question_scores(
     panel_id: int,
+    interview_id: str,
     db: Session = Depends(get_db),
 ):
     query = text("""
@@ -787,109 +798,188 @@ def get_panel_question_scores(
             a.answer_text,
             u.name AS member_name,
             COALESCE(fe.score, 0) AS score
+
         FROM public.interviews i
-        JOIN public.panel_members pm
-            ON i.panel_id = pm.panel_id
-        JOIN public.users u
-            ON pm.user_id = u.id
-        LEFT JOIN public.answers a
-            ON i.candidate_id = a.candidate_id::int
+
+        JOIN public.answers a
+            ON a.interview_id = i.interview_id
+
         JOIN public.question_bank q
             ON a.question_id = q.id
+
+        JOIN public.panel_members pm
+            ON i.panel_id = pm.panel_id
+
+        JOIN public.users u
+            ON pm.user_id = u.id
+
         LEFT JOIN public.final_evaluation fe
             ON pm.user_id = fe.memberid
-            AND i.candidate_id = fe.candidate_id
+            AND CAST(a.candidate_id AS integer) = fe.candidate_id
             AND q.id = fe.question_id
+            and fe.interview_id = i.interview_id
+
         WHERE i.panel_id = :panel_id
+          AND i.interview_id = :interview_id
+
         ORDER BY q.id, pm.user_id
     """)
 
-    rows = db.execute(
-        query,
-        {"panel_id": panel_id},
-    ).mappings().all()
+    try:
 
-    # ✅ GROUP DATA (IMPORTANT)
-    grouped = {}
-
-    for row in rows:
-        qid = row["question_id"]
-
-        if qid not in grouped:
-            grouped[qid] = {
-                "question_id": qid,
-                "question": row["question_text"],
-                "expectedAnswer": row["expected_answer"],
-                "answer": row["answer_text"],
-                "members": [],
+        rows = db.execute(
+            query,
+            {
+                "panel_id": panel_id,
+                "interview_id": interview_id
             }
+        ).mappings().all()
 
-        grouped[qid]["members"].append({
-            "name": row["member_name"],
-            "score": row["score"],
-        })
+        grouped = {}
 
-    return list(grouped.values())
+        for row in rows:
 
+            qid = row["question_id"]
 
-@router.get("/panel-evaluation-final-mark/{panel_id}")
+            if qid not in grouped:
+
+                grouped[qid] = {
+                    "question_id": qid,
+                    "question": row["question_text"],
+                    "expectedAnswer": row["expected_answer"],
+                    "answer": row["answer_text"],
+                    "members": [],
+                }
+
+            grouped[qid]["members"].append({
+                "name": row["member_name"],
+                "score": row["score"],
+            })
+
+        return list(grouped.values())
+
+    except Exception as e:
+
+        print(
+            f"❌ panel-question-scores error: {str(e)}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch panel question scores: {str(e)}"
+        )   
+
+@router.get("/panel-evaluation-final-mark/{panel_id}/{interview_id}")
 def get_panel_evaluation(
     panel_id: int,
+    interview_id: str,
     db: Session = Depends(get_db),
 ):
+
     query = text("""
-        SELECT
+        SELECT DISTINCT
             u.name,
             i.panel_id,
-            i.candidate_id,
+            CAST(a.candidate_id AS integer) AS candidate_id,
             pm.user_id,
-            COALESCE(fmv.technical_knowledge, 0) AS technical_knowledge,
-            COALESCE(fmv.problem_solving, 0) AS problem_solving,
-            COALESCE(fmv.communication, 0) AS communication,
-            COALESCE(fmv.domain_aptitude, 0) AS domain_aptitude,
-            COALESCE(fmv.overall_impression, 0) AS overall_impression,
-            COALESCE(fmv.remark, '') AS remark,
-            COALESCE(fmv.final_verdict, 'Pending') AS final_verdict
+
+            COALESCE(
+                fmv.technical_knowledge,
+                0
+            ) AS technical_knowledge,
+
+            COALESCE(
+                fmv.problem_solving,
+                0
+            ) AS problem_solving,
+
+            COALESCE(
+                fmv.communication,
+                0
+            ) AS communication,
+
+            COALESCE(
+                fmv.domain_aptitude,
+                0
+            ) AS domain_aptitude,
+
+            COALESCE(
+                fmv.overall_impression,
+                0
+            ) AS overall_impression,
+
+            COALESCE(
+                fmv.remark,
+                ''
+            ) AS remark,
+
+            COALESCE(
+                fmv.final_verdict,
+                'Pending'
+            ) AS final_verdict
+
         FROM public.interviews i
+
+        JOIN public.answers a
+            ON a.interview_id = i.interview_id
+
         JOIN public.panel_members pm
             ON i.panel_id = pm.panel_id
+
         JOIN public.users u
             ON pm.user_id = u.id
+
         LEFT JOIN public.final_mark_verdict fmv
-            ON i.candidate_id = fmv.candidate_id
+            ON CAST(a.candidate_id AS integer) = fmv.candidate_id
             AND pm.user_id = fmv.memberid
+            and fmv.interview_id=i.interview_id
+
         WHERE i.panel_id = :panel_id
+          AND i.interview_id = :interview_id
     """)
 
-    results = db.execute(
-        query,
-        {"panel_id": panel_id},
-    ).mappings().all()
+    try:
 
-    if not results:
-        return {"message": "No records found"}
+        results = db.execute(
+            query,
+            {
+                "panel_id": panel_id,
+                "interview_id": interview_id
+            }
+        ).mappings().all()
 
-    # ✅ convert to list of dict
-    data = []
+        if not results:
+            return []
 
-    for row in results:
-        data.append({
-            "name": row["name"],
-            "panel_id": row["panel_id"],
-            "candidate_id": row["candidate_id"],
-            "user_id": row["user_id"],
-            "technical_knowledge": row["technical_knowledge"],
-            "problem_solving": row["problem_solving"],
-            "communication": row["communication"],
-            "domain_aptitude": row["domain_aptitude"],
-            "overall_impression": row["overall_impression"],
-            "remark": row["remark"],
-            "final_verdict": row["final_verdict"],
-        })
+        data = []
 
-    return data
+        for row in results:
+            data.append({
+                "name": row["name"],
+                "panel_id": row["panel_id"],
+                "candidate_id": row["candidate_id"],
+                "user_id": row["user_id"],
+                "technical_knowledge": row["technical_knowledge"],
+                "problem_solving": row["problem_solving"],
+                "communication": row["communication"],
+                "domain_aptitude": row["domain_aptitude"],
+                "overall_impression": row["overall_impression"],
+                "remark": row["remark"],
+                "final_verdict": row["final_verdict"],
+            })
 
+        return data
 
+    except Exception as e:
+
+        print(
+            f"❌ panel-evaluation-final-mark error: {str(e)}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
 @router.get("/final-remark/{candidate_id}/{member_id}")
 def get_final_remark(
     candidate_id: int,
